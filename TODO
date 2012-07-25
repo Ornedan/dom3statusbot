@@ -1,0 +1,6 @@
+* Commands
+** !listen game
+*** Register messager's nick to be private message'd on turn change in game
+* A monad for doing this shit in
+** Implicit passing along the configuration and DB pool etc.
+* A function for making the commands. dispatch is ugly
