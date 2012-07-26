@@ -127,17 +127,20 @@ dispatch' pool irc msg
                   readIO $ toString port'
           action (Address host port) irc msg
 
-register pool (Address server port) irc msg = do
-  let replyTo = fromJust $ mOrigin msg
-  -- Get initial game info
-  now <- getCurrentTime
-  game <- doRequest server port
+register pool address@(Address server port) irc msg = do
+  -- Nothing to do if the game is already being tracked
+  ent <- runSqlPool (getBy address) pool
+  when (isNothing ent) $ do
+    let replyTo = fromJust $ mOrigin msg
+    -- Get initial game info
+    now <- getCurrentTime
+    game <- doRequest server port
   
-  -- Store it in DB
-  runSqlPool (insert $ Game server port now (toLowercase $ name game) game) pool
+    -- Store it in DB
+    runSqlPool (insert $ Game server port now (toLowercase $ name game) game) pool
   
-  -- Let the user know
-  sendMsg irc replyTo $ fromString $ printf "Added game %s" (name game)
+    -- Let the user know
+    sendMsg irc replyTo $ fromString $ printf "Added game %s" (name game)
   
 
 unregister pool address irc msg = do
