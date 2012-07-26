@@ -1,8 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Protocol where
 
 import Control.DeepSeq (deepseq)
 import Control.Monad (replicateM, when)
 import Data.Binary.Get
+import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.Lazy.UTF8 (toString)
 import Data.Maybe (isJust, fromJust)
 import Data.Word (Word8)
@@ -173,6 +175,9 @@ doMessage h m = do
   write h m
   
   header <- B.hGetSome h 6
+  when (B.length header /= 6 || not ("fH" `B.isPrefixOf` header)) $
+    fail $ printf "Got invalid header: '%s'" (show header)
+  
   let bodyLength = flip runGet (BL.fromChunks [header]) $ do
         0x66 <- getWord8 -- f
         0x48 <- getWord8 -- H in all the message types we use

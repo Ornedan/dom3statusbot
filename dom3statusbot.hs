@@ -5,7 +5,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
-import Data.ByteString(ByteString(..))
+import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.Char
 import Data.List (intercalate)
@@ -223,9 +223,9 @@ pollLoop pool irc = forever $ do
   forM games updateGame
   
   where
-    updateGame ent = catches (updateGame' ent)
+    updateGame ent = updateGame' ent `catches`
                      -- Ignore game fetch failures. TODO: Log if I add logging
-                     [Handler $ \(e :: IOException) -> return ()]
+                     [Handler $ \(e :: IOException) -> putStrLn $ "Error: " ++ ioeGetErrorString e]
     updateGame' ent = do
       let key = entityKey ent
           old = entityVal ent
@@ -256,7 +256,7 @@ pollLoop pool irc = forever $ do
         notifyNewTurn =
           sendMsg irc (fromString ircChannel) $ fromString $ printf "New turn in %s (%d)" (name new) (turn new)
 
-main = withSqlitePool "/tmp/bot.db" 1 $ \pool -> do
+main = withSqlitePool "bot.db" 1 $ \pool -> do
   let baseConfig = mkDefaultConfig ircServer ircNick
       ircConfig = baseConfig { cChannels = [ircChannel], 
                                cEvents = [Privmsg $ dispatch pool] }

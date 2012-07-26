@@ -55,6 +55,8 @@ Executable dom3statusbot
                  persistent, persistent-template, persistent-sqlite,
                  simpleirc, time, transformers, utf8-string
   
+  GHC-Options: -threaded -rtsopts=all -with-rtsopts=-N
+
   -- Modules not exported by this package.
   -- Other-modules:       
   
