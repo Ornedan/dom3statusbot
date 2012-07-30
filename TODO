@@ -1,6 +1,10 @@
 * Commands
 ** !listen game
 *** Register messager's nick to be private message'd on turn change in game
-* A monad for doing this shit in
-** Implicit passing along the configuration and DB pool etc.
-* A function for making the commands. dispatch is ugly
+
+* Load configuration from a file instead of hardcoding
+
+* Find a timed task / scheduler library
+** To generalise the poll loop into a general IO actions execution loop
+*** Could replace the mvar checking with pushing a quit event to be executed now
+*** Also for stale detection - we want higher granularity of checks near the turn roll-over
