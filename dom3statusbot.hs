@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, ScopedTypeVariables #-}
-{-# LANGUAGE GADTs, FlexibleContexts, Rank2Types #-}
+{-# LANGUAGE GADTs, FlexibleContexts #-}
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.Char
@@ -13,7 +14,6 @@ import Data.Maybe
 import Data.Time
 import Database.Persist
 import Database.Persist.Sqlite
-import Database.Persist.TH
 import Network
 import Network.SimpleIRC
 import System.IO
@@ -26,10 +26,10 @@ import qualified Data.List as L
 
 import Prelude hiding (catch)
 
+import Database
 import GameInfo
 import Protocol
-
-derivePersistField "GameInfo"
+import Util
 
 
 -- Constants
@@ -39,36 +39,6 @@ ircNick    = "Treebot"
 
 pollInterval = 60 * 1000 * 1000
 
-
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
-Game
-  -- Primary key, address and port
-  host     String
-  port     Int
-  Address host port
-  
-  -- When we last poked it
-  lastPoll UTCTime
-  
-  -- Data from the game itself
-  lname    String -- Lower case name
-  gameInfo GameInfo
-  deriving Show
-Listen
-  game GameId
-  nick String
-  UniqueListen game nick
-  deriving Show
-|]
-
-
--- Dominions server query result
-data RequestResult = FailSilent
-                   | FailMsg String
-                   | Result GameInfo
-
--- Utilities
-toLowercase = map toLower
 
 
 dispatch :: ConnectionPool -> EventFunc
@@ -114,7 +84,7 @@ dispatch' pool irc msg
         -- Got one param, assume it's name of a game. Check DB to make sure it exists.
         (name', "") -> do
           let name = toLowercase $ toString name'
-          mgame <- runSqlPool (selectFirst [GameLname ==. name] []) pool
+          mgame <- runSqlPool (selectFirst [GameLowerName ==. name] []) pool
           when (isNothing mgame) $
             fail $ printf "Unknown game: %s" name
           let game = entityVal $ fromJust mgame
@@ -241,9 +211,9 @@ pollLoop pool irc = forever $ do
   
       -- Update DB
       runSqlPool
-        (update key [GameLastPoll =. now,
-                     GameLname    =. (toLowercase $ name game),
-                     GameGameInfo =. game])
+        (update key [GameLastPoll  =. now,
+                     GameLowerName =. (toLowercase $ name game),
+                     GameGameInfo  =. game])
         pool
       
       -- Check if something worth notifying the channel about has happened
