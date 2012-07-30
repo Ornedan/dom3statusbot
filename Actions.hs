@@ -27,15 +27,13 @@ import Text.Printf
 import qualified Data.ByteString as B
 
 import BotException
+import Config
 import Database
 import GameInfo
 import Protocol
 import Util
 
 
-data Config = Config { cChannel        :: ByteString,
-                       cConnectTimeout :: Int,
-                       cLogName        :: String }
 data ActionState = AS { sConfig :: Config,
                         sPool   :: ConnectionPool,
                         sIrc    :: MIrc,
@@ -53,8 +51,8 @@ respond str = do
 
 announce :: String -> Action ()
 announce str = do
-  chan <- asks (cChannel . sConfig)
-  sayTo chan str
+  chan <- asks (cIrcChannel . sConfig)
+  sayTo (fromString chan) str
 
 sayTo :: ByteString -> String -> Action ()
 sayTo to str = do
@@ -80,10 +78,10 @@ catch' = liftCatch catch
 
 requestGameInfo :: String -> Int -> Action GameInfo
 requestGameInfo host port = do
-  msecs <- asks (cConnectTimeout . sConfig)
+  secs <- asks (cConnectTimeout . sConfig)
   log INFO $ printf "Querying game %s:%d" host port
   
-  mhandle <- liftIO $ timeout msecs $ connect
+  mhandle <- liftIO $ timeout (secs * 1000 * 1000) $ connect
   
   case mhandle of
     Nothing -> do
@@ -166,14 +164,17 @@ status = do
       | state game == Waiting = printf "%s: Waiting for players, %d pretenders submitted"
                                 (name game)
                                 (length $ filter ((== Human) . player) $ nations game)
-      | otherwise             = printf "%s: TTH %s, %d left to submit"
+      | otherwise             = printf "%s: TTH %s, %d/%d left to submit"
                                 (name game)
                                 (formatTime sincePoll $ timeToHost game)
                                 (length $
-                                 filter (not . submitted) $ 
-                                 filter (not . (== AI) . player) $
+                                 filter (not . submitted) $
+                                 filter ((== Human) . player) $
                                  nations game)
-
+                                (length $
+                                 filter ((== Human) . player) $
+                                 nations game)
+    
     formatTime :: Int -> Int -> String
     formatTime sincePoll tth =
       let ms           = if tth == 0 then 0 else tth - sincePoll
@@ -188,7 +189,7 @@ listMods :: Action ()
 listMods = do
   address <- getArgumentAddress
   ent <- runDB $ getBy address
-
+  
   when (isJust ent) $ do
     let game = gameGameInfo $ entityVal $ fromJust ent
     respond $ printf "Mods used in %s: %s" (name game) (showMods game)

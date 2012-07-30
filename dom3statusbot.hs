@@ -1,5 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, ScopedTypeVariables #-}
-{-# LANGUAGE GADTs, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 
 import Prelude hiding (catch, log)
 
@@ -13,6 +12,7 @@ import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.List (intercalate)
 import Data.Maybe
+import Data.Yaml
 import Database.Persist.Sqlite
 import Network.SimpleIRC
 import Numeric (showHex)
@@ -29,20 +29,11 @@ import Text.Printf
 import qualified Data.ByteString as B
 
 import Actions
+import Config
 import BotException
 import Database
 import GameInfo
 import Util
-
-
--- Constants
-ircServer  = "irc.synirc.net"
-ircChannel = "#dom3goons"
-ircNick    = "Treebot"
-
-logName = "dom3statusbot"
-connectTimeout = 2500 * 1000 -- 2.5s in microseconds
-pollInterval = 60 * 1000 * 1000 -- 1 min in microseconds
 
 
 
@@ -51,8 +42,9 @@ pollLoop baseState irc quitMV =
   let state = baseState { sIrc = irc }
   in forever $ flip runReaderT state $ do
     -- Wait and check whether we've been ordered to shut down
+    secs <- asks (cPollInterval . sConfig)
     liftIO $ do
-      threadDelay pollInterval
+      threadDelay $ secs * 1000 * 1000
       quit <- tryTakeMVar quitMV
       when (isJust quit) exitSuccess
     
@@ -66,7 +58,8 @@ pollLoop baseState irc quitMV =
       `catch'` (\(e :: BotException) -> do
                    case e of
                      FailSilent -> return ()
-                     FailMessage msg -> respond msg)
+                     FailMessage msg -> do
+                       log WARNING $ printf "Exception in pollLoop: %s" msg)
       `catch'` (\(e :: IOException) -> do
                    log WARNING $ printf "Exception in pollLoop: %s" (ioeGetErrorString e))
     updateGame' ent = do
@@ -132,35 +125,42 @@ mkEvent baseState pool command action = event
 
 
 main = withSqlitePool "bot.db" 1 $ \pool -> do
-  -- Set up logging
+  -- Set up stderr logging
   errLog <- do
     h <- streamHandler stderr DEBUG
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
   updateGlobalLogger rootLoggerName (setHandlers [errLog])
   updateGlobalLogger rootLoggerName (setLevel NOTICE)
   
+  -- Load config
+  mconfig <- decodeFile "bot.conf"
+  when (isNothing mconfig) $ do
+    criticalM rootLoggerName $ "Could not load configuration from bot.conf"
+    exitFailure
+  let Just config = mconfig
+  
+  -- Set up log file
   logFile <- do
     h <-fileHandler "bot.log" DEBUG
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
-  updateGlobalLogger logName (addHandler logFile)
+  updateGlobalLogger (cLogName config) (addHandler logFile)
 
   
   -- Set up IRC
-  let state = AS { sConfig = Config { cChannel        = fromString ircChannel,
-                                      cConnectTimeout = connectTimeout,
-                                      cLogName        = logName },
+  let state = AS { sConfig = config,
                    sPool   = pool,
-                   sIrc    = undefined,
-                   sMsg    = undefined,
-                   sArgs   = undefined }
+                   sIrc    = error "Read unitialised sIrc",
+                   sMsg    = error "Read unitialised sMsg",
+                   sArgs   = error "Read unitialised sArgs" }
       events = map (Privmsg . (uncurry $ mkEvent state pool))
                [("register",   register),
                 ("unregister", unregister),
                 ("status",     status),
                 ("mods",       listMods),
                 ("list",       listGames)]
-      ircConfig = (mkDefaultConfig ircServer ircNick) { cChannels = [ircChannel], 
-                                                        cEvents   = events }
+      ircConfig' = mkDefaultConfig (cIrcServer config) (cIrcNick config) 
+      ircConfig = ircConfig' { cChannels = [cIrcChannel config], 
+                               cEvents   = events }
   
   -- Init DB (if necessary)
   runSqlPool (runMigration migrateAll) pool
@@ -173,7 +173,7 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
       -- Set up quit command      
       code <- replicateM 4 (randomIO :: IO Int) >>= return . concatMap (flip showHex "" . abs)
       quitMV <- newEmptyMVar
-      logM logName NOTICE $ printf "Quit code: '%s'" code
+      noticeM (cLogName config) $ printf "Quit code: '%s'" code
       addEvent irc $ Privmsg $ mkEvent state pool "quit" $ quit code quitMV
       
       -- Start game polling thread
