@@ -8,9 +8,10 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Writer
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
-import Data.List (intercalate)
+import Data.List ((\\), intercalate)
 import Data.Maybe
 import Data.Yaml
 import Database.Persist.Sqlite
@@ -86,7 +87,20 @@ pollLoop baseState irc quitMV =
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
-        notifyNewTurn = announce $ printf "New turn in %s (%d)" (name new) (turn new)
+        notifyNewTurn = announce $ execWriter $ do
+          tell $ printf "New turn in %s (%d)" (name new) (turn new)
+          
+          let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
+          when (length defeated > 0) $ do
+            tell ". Defeated: "
+            tell $ intercalate ", " $ map (nationName . nationId) $ nations new
+          
+          let oldAIs = filter ((== AI) . player) $ nations old
+              newAIs = filter ((== AI) . player) $ nations new
+              goneAI = newAIs \\ oldAIs
+          when (length goneAI > 0) $ do
+            tell ". Gone AI: "
+            tell $ intercalate ", " $ map (nationName . nationId) goneAI
 
 
 mkEvent :: ActionState -> ConnectionPool -> String -> Action () -> EventFunc
@@ -130,7 +144,7 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
     h <- streamHandler stderr DEBUG
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
   updateGlobalLogger rootLoggerName (setHandlers [errLog])
-  updateGlobalLogger rootLoggerName (setLevel NOTICE)
+  updateGlobalLogger rootLoggerName (setLevel DEBUG)
   
   -- Load config
   mconfig <- decodeFile "bot.conf"
@@ -141,10 +155,11 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
   
   -- Set up log file
   logFile <- do
-    h <-fileHandler "bot.log" DEBUG
+    h <-fileHandler "bot.log" NOTICE
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
   updateGlobalLogger (cLogName config) (addHandler logFile)
 
+  noticeM (cLogName config) "Bot starting up, configuration loaded OK"
   
   -- Set up IRC
   let state = AS { sConfig = config,

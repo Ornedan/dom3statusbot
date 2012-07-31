@@ -9,6 +9,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Writer hiding (liftCatch)
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.List (intercalate)
@@ -161,19 +162,24 @@ status = do
     
   where
     showGame sincePoll game
-      | state game == Waiting = printf "%s: Waiting for players, %d pretenders submitted"
-                                (name game)
-                                (length $ filter ((== Human) . player) $ nations game)
-      | otherwise             = printf "%s: TTH %s, %d/%d left to submit"
-                                (name game)
-                                (formatTime sincePoll $ timeToHost game)
-                                (length $
-                                 filter (not . submitted) $
-                                 filter ((== Human) . player) $
-                                 nations game)
-                                (length $
-                                 filter ((== Human) . player) $
-                                 nations game)
+      | state game == Waiting = showWaiting game
+      | otherwise             = showRunning sincePoll game
+    showWaiting game =
+      printf "%s: Waiting for players, %d pretenders submitted"
+      (name game)
+      (length $ filter ((== Human) . player) $ nations game)
+    showRunning sincePoll game = execWriter $ do
+      let players = filter ((== Human) . player) $ nations game
+      tell $
+        printf "%s: TTH %s, %d/%d left to submit"
+        (name game)
+        (formatTime sincePoll $ timeToHost game)
+        (length $ filter (not . submitted) players)
+        (length $ players)
+      let nAIs = length $ filter ((== AI) . player) $ nations game
+      when (nAIs > 0) $
+        tell $ printf " (%d AIs)" nAIs
+      
     
     formatTime :: Int -> Int -> String
     formatTime sincePoll tth =
