@@ -93,7 +93,7 @@ pollLoop baseState irc quitMV =
           let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
           when (length defeated > 0) $ do
             tell ". Defeated: "
-            tell $ intercalate ", " $ map (nationName . nationId) $ nations new
+            tell $ intercalate ", " $ map (nationName . nationId) defeated
           
           let oldAIs = filter ((== AI) . player) $ nations old
               newAIs = filter ((== AI) . player) $ nations new
