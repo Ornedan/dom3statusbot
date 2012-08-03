@@ -34,28 +34,30 @@ import Config
 import BotException
 import Database
 import GameInfo
+import Scheduler
 import Util
 
 
 
-pollLoop :: ActionState -> MIrc -> MVar () -> IO ()
-pollLoop baseState irc quitMV =
-  let state = baseState { sIrc = irc }
-  in forever $ flip runReaderT state $ do
-    -- Wait and check whether we've been ordered to shut down
-    secs <- asks (cPollInterval . sConfig)
-    liftIO $ do
-      threadDelay $ secs * 1000 * 1000
-      quit <- tryTakeMVar quitMV
-      when (isJust quit) exitSuccess
-    
-    -- Poll games
-    games <- runDB $ selectList [] []
-    forM games updateGame
+pollLoop :: ActionState -> MIrc -> IO ()
+pollLoop baseState irc = do
+  let state    = baseState { sIrc = irc }
+      interval = fromIntegral $ cPollInterval $ sConfig baseState
+  
+  let pollLoop' = do
+        -- Poll games
+        games <- runDB $ selectList [] []
+        forM games updateGame'
+        
+        -- Schedule next poll
+        scheduleAction' interval pollLoop'
+  
+  -- Start the loop
+  flip runReaderT state pollLoop'
   
   where
-    updateGame ent =
-      updateGame' ent
+    updateGame' ent =
+      updateGame ent
       `catch'` (\(e :: BotException) -> do
                    case e of
                      FailSilent -> return ()
@@ -63,44 +65,6 @@ pollLoop baseState irc quitMV =
                        log WARNING $ printf "Exception in pollLoop: %s" msg)
       `catch'` (\(e :: IOException) -> do
                    log WARNING $ printf "Exception in pollLoop: %s" (ioeGetErrorString e))
-    updateGame' ent = do
-      let key = entityKey ent
-          old = entityVal ent
-      
-      log INFO $ printf "Updating game %s:%d" (gameHost old) (gamePort old)
-      
-      -- Query the game's status
-      now <- getTime
-      game <- requestGameInfo (gameHost old) (gamePort old)
-  
-      -- Update DB
-      runDB $ update key [GameLastPoll  =. now,
-                          GameLowerName =. (toLowercase $ name game),
-                          GameGameInfo  =. game]
-      
-      -- Check if something worth notifying the channel about has happened
-      notifications (gameGameInfo old) game
-    
-    notifications old new
-      | state old == Waiting && state new == Running = notifyStart
-      | turn old /= turn new                         = notifyNewTurn
-      | otherwise = return ()
-      where
-        notifyStart = announce $ printf "Game started: %s" (name new)
-        notifyNewTurn = announce $ execWriter $ do
-          tell $ printf "New turn in %s (%d)" (name new) (turn new)
-          
-          let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
-          when (length defeated > 0) $ do
-            tell ". Defeated: "
-            tell $ intercalate ", " $ map (nationName . nationId) defeated
-          
-          let oldAIs = filter ((== AI) . player) $ nations old
-              newAIs = filter ((== AI) . player) $ nations new
-              goneAI = newAIs \\ oldAIs
-          when (length goneAI > 0) $ do
-            tell ". Gone AI: "
-            tell $ intercalate ", " $ map (nationName . nationId) goneAI
 
 
 mkEvent :: ActionState -> ConnectionPool -> String -> Action () -> EventFunc
@@ -161,9 +125,13 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
 
   noticeM (cLogName config) "Bot starting up, configuration loaded OK"
   
+  -- Start scheduler
+  sched <- mkScheduler
+
   -- Set up IRC
   let state = AS { sConfig = config,
                    sPool   = pool,
+                   sSched  = sched,
                    sIrc    = error "Read unitialised sIrc",
                    sMsg    = error "Read unitialised sMsg",
                    sArgs   = error "Read unitialised sArgs" }
@@ -191,5 +159,9 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
       noticeM (cLogName config) $ printf "Quit code: '%s'" code
       addEvent irc $ Privmsg $ mkEvent state pool "quit" $ quit code quitMV
       
-      -- Start game polling thread
-      pollLoop state irc quitMV
+      -- Start game pollers
+      forkIO $ pollLoop state irc
+      
+      -- Wait for quit
+      takeMVar quitMV
+      exitSuccess

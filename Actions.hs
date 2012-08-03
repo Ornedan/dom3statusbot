@@ -12,7 +12,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Writer hiding (liftCatch)
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
-import Data.List (intercalate)
+import Data.List ((\\), intercalate)
 import Data.Maybe
 import Data.Time
 import Database.Persist
@@ -32,11 +32,13 @@ import Config
 import Database
 import GameInfo
 import Protocol
+import Scheduler
 import Util
 
 
 data ActionState = AS { sConfig :: Config,
                         sPool   :: ConnectionPool,
+                        sSched  :: Scheduler,
                         sIrc    :: MIrc,
                         sMsg    :: IrcMessage, 
                         sArgs   :: ByteString }
@@ -75,6 +77,16 @@ log prio str = do
 
 catch' :: Exception e => Action a -> (e -> Action a) -> Action a
 catch' = liftCatch catch
+
+scheduleAction :: UTCTime -> Action () -> Action ()
+scheduleAction when action = do
+  state <- ask
+  liftIO $ schedule (sSched state) when $ runReaderT action state
+
+scheduleAction' :: NominalDiffTime -> Action () -> Action ()
+scheduleAction' offset action = do
+  state <- ask
+  liftIO $ schedule' (sSched state) offset $ runReaderT action state
 
 
 requestGameInfo :: String -> Int -> Action GameInfo
@@ -119,6 +131,66 @@ getArgumentAddress = do
       return $ Address (toString host) port
 
 
+-- | Poll the given game and update DB accordingly.
+updateGame :: Entity Game -> Action ()
+updateGame oldEnt = do
+  let key  = entityKey oldEnt
+      old  = entityVal oldEnt
+      host = gameHost old
+      port = gamePort old
+  
+  log INFO $ printf "Updating game %s:%d" host port
+  
+  -- Query the game's status
+  game <- requestGameInfo host port
+  now <- getTime
+  
+  -- Update DB
+  runDB $ update key [GameLastPoll  =. now,
+                      GameLowerName =. (toLowercase $ name game),
+                      GameGameInfo  =. game]
+  
+  -- Check if something worth notifying the channel about has happened
+  notifications (gameGameInfo old) game  
+  
+  where
+    notifications old new
+      | state old == Waiting && state new == Running = notifyStart
+      | turn old /= turn new                         = notifyNewTurn >> guessStales
+      | otherwise = return ()
+      where
+        notifyStart = announce $ printf "Game started: %s" (name new)
+        notifyNewTurn = announce $ execWriter $ do
+          tell $ printf "New turn in %s (%d)" (name new) (turn new)
+          
+          let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
+          when (length defeated > 0) $ do
+            tell ". Defeated: "
+            tell $ intercalate ", " $ map (nationName . nationId) defeated
+          
+          let oldAIs = filter ((== AI) . player) $ nations old
+              newAIs = filter ((== AI) . player) $ nations new
+              goneAI = newAIs \\ oldAIs
+          when (length goneAI > 0) $ do
+            tell ". Gone AI: "
+            tell $ intercalate ", " $ map (nationName . nationId) goneAI
+        guessStales = do
+          let tthSecs    = timeToHost old `div` 1000
+              stales     = filter (not . submitted) $ filter ((== Human) . player) $ nations new
+              present    = filter connected stales
+              notPresent = filter (not . connected) stales
+          -- It's not staling if the turn changes well enough before the deadline
+          pollInterval <- asks (cPollInterval . sConfig)
+          when (tthSecs < 3 * pollInterval && length stales > 0) $ announce $ execWriter $ do
+            tell $ printf "Potential stales, estimating from %ds before hosting" tthSecs
+            when (length notPresent > 0) $ do
+              tell ". Not submitted: "
+              tell $ intercalate ", " $ map (nationName . nationId) notPresent
+            when (length present > 0) $ do
+              tell ". Connected, but no submitted: "
+              tell $ intercalate ", " $ map (nationName . nationId) present
+
+
 -- | Add the game to tracked games if it's not there yet
 register :: Action ()
 register = do
@@ -157,7 +229,7 @@ status = do
     now <- getTime
     let game      = entityVal $ fromJust ent
         info      = gameGameInfo game
-        sincePoll = 1000 * (floor $ diffUTCTime now (gameLastPoll game))
+        sincePoll = floor $ 1000 * diffUTCTime now (gameLastPoll game)
     respond $ showGame sincePoll info
     
   where
