@@ -312,14 +312,17 @@ listen = do
   -- Require the game exists
   gameEnt <- runDB $ getBy address
   when (isNothing gameEnt) failSilent
-  let gameKey = entityKey $ fromJust gameEnt
+  let key  = entityKey $ fromJust gameEnt
+      game = entityVal $ fromJust gameEnt
   
   -- Require that this would not be a duplicate entry
-  listenEnt <- runDB $ selectFirst [ListenGame ==. gameKey,
+  listenEnt <- runDB $ selectFirst [ListenGame ==. key,
                                     ListenNick ==. nick] []
   
-  runDB $ insert $ Listen gameKey nick
-  return ()
+  -- Register the listen and notify the user
+  runDB $ insert $ Listen key nick
+  
+  sayTo (fromString nick) $ printf "You will be sent messages about new turns in %s" (name $ gameGameInfo game)
 
 
 unlisten :: Action ()
@@ -330,9 +333,13 @@ unlisten = do
   -- Require the game exists
   gameEnt <- runDB $ getBy address
   when (isNothing gameEnt) failSilent
-  let gameKey = entityKey $ fromJust gameEnt
+  let key  = entityKey $ fromJust gameEnt
+      game = entityVal $ fromJust gameEnt
   
-  runDB $ deleteBy $ UniqueListen gameKey nick
+  -- Remove the listen and notify the user
+  runDB $ deleteBy $ UniqueListen key nick
+  
+  sayTo (fromString nick) $ printf "You will no longer be sent messages about new turns in %s" (name $ gameGameInfo game)
 
 
 -- | Quit if given the correct code
