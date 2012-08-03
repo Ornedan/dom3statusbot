@@ -8,7 +8,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Writer
+import Control.Monad.Trans.Writer hiding (listen)
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.List ((\\), intercalate)
@@ -47,7 +47,7 @@ pollLoop baseState irc = do
   let pollLoop' = do
         -- Poll games
         games <- runDB $ selectList [] []
-        forM games updateGame'
+        forM games $ forkAction . updateGame'
         
         -- Schedule next poll
         scheduleAction' interval pollLoop'
@@ -140,7 +140,9 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
                 ("unregister", unregister),
                 ("status",     status),
                 ("mods",       listMods),
-                ("list",       listGames)]
+                ("list",       listGames),
+                ("listen",     listen),
+                ("unlisten",   unlisten)]
       ircConfig' = mkDefaultConfig (cIrcServer config) (cIrcNick config) 
       ircConfig = ircConfig' { cChannels = [cIrcChannel config], 
                                cEvents   = events }

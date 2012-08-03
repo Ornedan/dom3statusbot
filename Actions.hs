@@ -4,6 +4,7 @@ module Actions where
 
 import Prelude hiding (catch, log)
 
+import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
@@ -77,6 +78,11 @@ log prio str = do
 
 catch' :: Exception e => Action a -> (e -> Action a) -> Action a
 catch' = liftCatch catch
+
+forkAction :: Action () -> Action ThreadId
+forkAction action = do
+  state <- ask
+  liftIO $ forkIO $ runReaderT action state
 
 scheduleAction :: UTCTime -> Action () -> Action ()
 scheduleAction when action = do
@@ -155,12 +161,17 @@ updateGame oldEnt = do
   
   where
     notifications old new
-      | state old == Waiting && state new == Running = notifyStart
-      | turn old /= turn new                         = notifyNewTurn >> guessStales
+      | state old == Waiting && state new == Running = do
+        notifyStart
+      | turn old /= turn new                         = do
+        announce =<< notifyNewTurn
+        guessStales
+        notifyListens
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
-        notifyNewTurn = announce $ execWriter $ do
+        
+        notifyNewTurn = return $ execWriter $ do
           tell $ printf "New turn in %s (%d)" (name new) (turn new)
           
           let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
@@ -174,9 +185,16 @@ updateGame oldEnt = do
           when (length goneAI > 0) $ do
             tell ". Gone AI: "
             tell $ intercalate ", " $ map (nationName . nationId) goneAI
+        
+        notifyListens = do
+          listens <- runDB $ selectList [] []
+          forM_ listens $ \listen -> do
+            nick <- return $ listenNick $ entityVal listen
+            sayTo (fromString nick) =<< notifyNewTurn
+        
         guessStales = do
           let tthSecs    = timeToHost old `div` 1000
-              stales     = filter (not . submitted) $ filter ((== Human) . player) $ nations new
+              stales     = filter (not . submitted) $ filter ((== Human) . player) $ nations old
               present    = filter connected stales
               notPresent = filter (not . connected) stales
           -- It's not staling if the turn changes well enough before the deadline
@@ -214,7 +232,7 @@ unregister = do
   address <- getArgumentAddress
   ent <- runDB $ getBy address
   
-  when(isJust ent) $ do
+  when (isJust ent) $ do
     runDB $ deleteBy address
     respond $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
 
@@ -285,6 +303,36 @@ listGames = do
   let names = map (name . gameGameInfo . entityVal) games
   
   respond $ printf "Tracking games: %s" (intercalate ", " names)
+
+listen :: Action ()
+listen = do
+  address <- getArgumentAddress
+  nick <- asks (toString . fromJust . mNick . sMsg)
+  
+  -- Require the game exists
+  gameEnt <- runDB $ getBy address
+  when (isNothing gameEnt) failSilent
+  let gameKey = entityKey $ fromJust gameEnt
+  
+  -- Require that this would not be a duplicate entry
+  listenEnt <- runDB $ selectFirst [ListenGame ==. gameKey,
+                                    ListenNick ==. nick] []
+  
+  runDB $ insert $ Listen gameKey nick
+  return ()
+
+
+unlisten :: Action ()
+unlisten = do
+  address <- getArgumentAddress
+  nick <- asks (toString . fromJust . mNick . sMsg)
+  
+  -- Require the game exists
+  gameEnt <- runDB $ getBy address
+  when (isNothing gameEnt) failSilent
+  let gameKey = entityKey $ fromJust gameEnt
+  
+  runDB $ deleteBy $ UniqueListen gameKey nick
 
 
 -- | Quit if given the correct code
