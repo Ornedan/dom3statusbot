@@ -348,6 +348,11 @@ quit code quitMV = do
   args <- asks sArgs
   irc <- asks sIrc
   
-  when (args == fromString code) $ liftIO $ do
+  if args == fromString code
+    then liftIO $ do
     disconnect irc "Terminating"
     putMVar quitMV ()
+    
+    else do
+    nick <- asks (mNick . sMsg)
+    log WARNING $ printf "Quit requested with invalid code by %s" (show nick)
