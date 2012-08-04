@@ -101,6 +101,17 @@ mkEvent baseState pool command action = event
       in runReaderT action'' state
 
 
+mkEvents :: ActionState -> ConnectionPool -> [(Action (), String, String)] -> [IrcEvent]
+mkEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg $ mkEvent baseState pool command action) events
+  where
+    mkHelp = Privmsg $ mkEvent baseState pool "help" $ do
+      let longest = maximum $ 4 : map (\(_,cmd,_) -> length cmd) events
+          pattern = printf "!%%%ds %%s" longest
+      respond $ printf pattern ("help" :: String) ("Display this list of commands." :: String)
+      respond $ printf "Commands which take a game as an argument may be given the name of a game, or the address and port. Most commands only work if the game is being tracked."
+      forM_ events $ \(_, command, description) -> do
+        respond $ printf pattern command description
+
 
 main = withSqlitePool "bot.db" 1 $ \pool -> do
   -- Set up stderr logging
@@ -135,14 +146,21 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
                    sIrc    = error "Read unitialised sIrc",
                    sMsg    = error "Read unitialised sMsg",
                    sArgs   = error "Read unitialised sArgs" }
-      events = map (Privmsg . (uncurry $ mkEvent state pool))
-               [("register",   register),
-                ("unregister", unregister),
-                ("status",     status),
-                ("mods",       listMods),
-                ("list",       listGames),
-                ("listen",     listen),
-                ("unlisten",   unlisten)]
+      events = mkEvents state pool
+               [(register,   "register",
+                 "Add a game to be tracked by the bot. Takes two arguments: address and port."),
+                (unregister, "unregister",
+                 "Stop the bot tracking the given game."),
+                (status,     "status",
+                 "Show information about the current status of the given game."),
+                (listMods,   "mods",
+                 "Show the names of the mods used in the given game."),
+                (listGames,  "list",
+                 "List the names of the games being tracked by the bot."),
+                (listen,     "listen",
+                 "Set yourself to be notified of new turns in the given game. Note that the messages will be sent to the nick you used when !listening."),
+                (unlisten,   "unlisten",
+                 "Remove yourself from the list of people notified of turns in the given game.")]
       ircConfig' = mkDefaultConfig (cIrcServer config) (cIrcNick config) 
       ircConfig = ircConfig' { cChannels = [cIrcChannel config], 
                                cEvents   = events }
