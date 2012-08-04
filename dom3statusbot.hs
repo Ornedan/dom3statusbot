@@ -119,7 +119,7 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
   
   -- Set up log file
   logFile <- do
-    h <-fileHandler "bot.log" NOTICE
+    h <-fileHandler "bot.log" (read $ cLogLevel config)
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
   updateGlobalLogger (cLogName config) (addHandler logFile)
 

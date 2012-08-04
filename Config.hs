@@ -13,6 +13,7 @@ data Config = Config { cIrcServer      :: String,
                        cIrcChannel     :: String,
                        
                        cLogName        :: String, 
+                       cLogLevel       :: String,
                        cConnectTimeout :: Int,
                        cPollInterval   :: Int }
             deriving (Show)
@@ -24,6 +25,7 @@ instance FromJSON Config where
                          v .: "channel" <*>
                          
                          v .: "logfile" <*>
+                         v .: "loglevel" <*>
                          v .: "connect-timeout" <*>
                          v .: "poll-interval"
   parseJSON _ = mzero

@@ -167,6 +167,8 @@ updateGame oldEnt = do
         announce =<< notifyNewTurn
         guessStales
         notifyListens
+        
+        log DEBUG $ printf "Announced new turn in %s" (name new)
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
@@ -191,6 +193,7 @@ updateGame oldEnt = do
           forM_ listens $ \listen -> do
             nick <- return $ listenNick $ entityVal listen
             sayTo (fromString nick) =<< notifyNewTurn
+            log DEBUG $ printf "Notified %s of new turn in %s" nick (name new)
         
         guessStales = do
           let tthSecs    = timeToHost old `div` 1000
