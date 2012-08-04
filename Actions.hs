@@ -157,10 +157,10 @@ updateGame oldEnt = do
                       GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
-  notifications (gameGameInfo old) game  
+  notifications key (gameGameInfo old) game
   
   where
-    notifications old new
+    notifications key old new
       | state old == Waiting && state new == Running = do
         notifyStart
       | turn old /= turn new                         = do
@@ -187,7 +187,7 @@ updateGame oldEnt = do
             tell $ intercalate ", " $ map (nationName . nationId) goneAI
         
         notifyListens = do
-          listens <- runDB $ selectList [] []
+          listens <- runDB $ selectList [ListenGame ==. key] []
           forM_ listens $ \listen -> do
             nick <- return $ listenNick $ entityVal listen
             sayTo (fromString nick) =<< notifyNewTurn
