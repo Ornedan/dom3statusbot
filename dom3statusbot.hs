@@ -106,7 +106,7 @@ mkEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg 
   where
     mkHelp = Privmsg $ mkEvent baseState pool "help" $ do
       let longest = maximum $ 4 : map (\(_,cmd,_) -> length cmd) events
-          pattern = printf "!%%%ds %%s" longest
+          pattern = printf "!%%-%ds %%s" longest
       respond $ printf pattern ("help" :: String) ("Display this list of commands." :: String)
       respond $ printf "Commands which take a game as an argument may be given the name of a game, or the address and port. Most commands only work if the game is being tracked."
       forM_ events $ \(_, command, description) -> do
