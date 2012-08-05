@@ -263,21 +263,27 @@ status = do
       (length $ filter ((== Human) . player) $ nations game)
     showRunning sincePoll game = execWriter $ do
       let players = filter ((== Human) . player) $ nations game
+      let tth     = timeToHost game
       tell $
-        printf "%s: TTH %s, %d/%d left to submit"
+        printf "%s: %s, %d/%d left to submit"
         (name game)
-        (formatTime sincePoll $ timeToHost game)
+        (showTime tth sincePoll)
         (length $ filter (not . submitted) players)
         (length $ players)
       let nAIs = length $ filter ((== AI) . player) $ nations game
       when (nAIs > 0) $
         tell $ printf " (%d AIs)" nAIs
-      
+      when (sincePoll > 5 * 60 * 1000) $
+        tell $ printf ". Last poll %s ago" (formatTime sincePoll)
     
-    formatTime :: Int -> Int -> String
-    formatTime sincePoll tth =
-      let ms           = if tth == 0 then 0 else tth - sincePoll
-          (hours, ms') = ms `quotRem` (60 * 60 * 1000)
+    showTime :: Int -> Int -> String
+    showTime tth sincePoll
+      | tth == 0  = "no timer"
+      | otherwise = printf "TTH %s" $ formatTime $ tth - sincePoll
+    
+    formatTime :: Int -> String
+    formatTime ms =
+      let (hours, ms') = ms `quotRem` (60 * 60 * 1000)
           (mins, ms'') = ms' `quotRem` (60 * 1000)
           secs         = ms'' `quot` 1000
       in printf "%02d:%02d:%02d" hours mins secs
