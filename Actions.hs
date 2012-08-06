@@ -157,8 +157,10 @@ updateGame oldEnt = do
                       GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
-  log INFO $ printf "Processing notifications for %s:%d. (%s) -> (%s)" host port (show $ gameGameInfo old) (show game)
-  notifications key (gameGameInfo old) game
+  let oldGame = gameGameInfo old
+  when (oldGame /= game) $ do
+    log INFO $ printf "Processing notifications for %s:%d. (%s) -> (%s)" host port (show oldGame) (show game)
+    notifications key oldGame game
   
   where
     notifications key old new
