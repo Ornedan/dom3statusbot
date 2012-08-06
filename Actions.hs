@@ -157,6 +157,7 @@ updateGame oldEnt = do
                       GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
+  log INFO $ printf "Processing notifications for %s:%d. (%s) -> (%s)" host port (show $ gameGameInfo old) (show game)
   notifications key (gameGameInfo old) game
   
   where
@@ -164,10 +165,16 @@ updateGame oldEnt = do
       | state old == Waiting && state new == Running = do
         notifyStart
       | turn old /= turn new                         = do
+        -- Announce the new turn to channel and to listeners
         announce =<< notifyNewTurn
-        guessStales
         notifyListens
-        
+        -- Guess stales - except when the timer is turned off.
+        -- It might be possible falsely skip this if it's possible to poll the
+        -- game at exactly TTH 0 and we happen to do so.
+        -- But that's fairly unlikely.
+        when (timeToHost old /= 0) $
+          guessStales
+          
         log DEBUG $ printf "Announced new turn in %s" (name new)
       | otherwise = return ()
       where
