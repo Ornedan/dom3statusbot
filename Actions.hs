@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 
 module Actions where
-
+import System.Environment
 import Prelude hiding (catch, log)
 
 import Control.Concurrent
@@ -152,15 +152,20 @@ updateGame oldEnt = do
   now <- getTime
   
   -- Update DB
-  runDB $ update key [GameLastPoll  =. now,
-                      GameLowerName =. (toLowercase $ name game),
-                      GameGameInfo  =. game]
+  log DEBUG $ printf "Pre-runDB update (%s:%d)" host port
+  runDB $ do
+    liftIO $ logM "bot.log" DEBUG $ printf "runDB pre-update (%s:%d)" host port
+    update key [GameLastPoll  =. now,
+                GameLowerName =. (toLowercase $ name game),
+                GameGameInfo  =. game]
+    liftIO $ logM "bot.log" DEBUG $ printf "runDB post-update (%s:%d)" host port
+  log DEBUG $ printf "Post-runDB update (%s:%d)" host port
   
   -- Check if something worth notifying the channel about has happened
   let oldGame = gameGameInfo old
-  when (oldGame /= game) $ do
-    log INFO $ printf "Processing notifications for %s:%d. (%s) -> (%s)" host port (show oldGame) (show game)
-    notifications key oldGame game
+  log INFO $ printf "Processing notifications for %s:%d." host port
+  notifications key oldGame game
+  log DEBUG $ printf "Processed notifications for %s:%d" host port
   
   where
     notifications key old new
@@ -177,7 +182,7 @@ updateGame oldEnt = do
         when (timeToHost old /= 0) $
           guessStales
           
-        log DEBUG $ printf "Announced new turn in %s" (name new)
+        log DEBUG $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
