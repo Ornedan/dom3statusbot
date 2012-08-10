@@ -98,7 +98,7 @@ scheduleAction' offset action = do
 requestGameInfo :: String -> Int -> Action GameInfo
 requestGameInfo host port = do
   secs <- asks (cConnectTimeout . sConfig)
-  log INFO $ printf "Querying game %s:%d" host port
+  log DEBUG $ printf "Querying game %s:%d" host port
   
   mhandle <- liftIO $ timeout (secs * 1000 * 1000) $ connect
   
@@ -145,7 +145,7 @@ updateGame oldEnt = do
       host = gameHost old
       port = gamePort old
   
-  log INFO $ printf "Updating game %s:%d" host port
+  log DEBUG $ printf "Updating game %s:%d" host port
   
   -- Query the game's status
   game <- requestGameInfo host port
@@ -163,7 +163,7 @@ updateGame oldEnt = do
   
   -- Check if something worth notifying the channel about has happened
   let oldGame = gameGameInfo old
-  log INFO $ printf "Processing notifications for %s:%d." host port
+  log DEBUG $ printf "Processing notifications for %s:%d." host port
   notifications key oldGame game
   log DEBUG $ printf "Processed notifications for %s:%d" host port
   
@@ -171,6 +171,7 @@ updateGame oldEnt = do
     notifications key old new
       | state old == Waiting && state new == Running = do
         notifyStart
+        log INFO $ printf "Announced game start in %s." (name new)
       | turn old /= turn new                         = do
         -- Announce the new turn to channel and to listeners
         announce =<< notifyNewTurn
@@ -182,7 +183,7 @@ updateGame oldEnt = do
         when (timeToHost old /= 0) $
           guessStales
           
-        log DEBUG $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
+        log INFO $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
