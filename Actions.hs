@@ -84,6 +84,17 @@ forkAction action = do
   state <- ask
   liftIO $ forkIO $ runReaderT action state
 
+waitAction :: Int -> Action () -> Action ()
+waitAction wait action = do
+  state <- ask
+  liftIO $ do
+    mv <- newEmptyMVar
+    forkIO $ do
+      runReaderT action state
+      putMVar mv ()
+    timeout wait $ takeMVar mv
+  return ()
+
 scheduleAction :: UTCTime -> Action () -> Action ()
 scheduleAction when action = do
   state <- ask
@@ -271,11 +282,8 @@ status = do
   ent <- runDB $ getBy address
   
   when (isJust ent) $ do
-    -- Force immediate update attempt
-    forkAction $ updateGame $ fromJust ent
-    
-    -- Wait 3s
-    liftIO $ threadDelay $ 3 * 1000 * 1000
+    -- Force immediate update attempt and wait up to 3s for it to complete
+    waitAction (3 * 1000 * 1000) $ updateGame $ fromJust ent
     
     -- Use whatever the game status is now
     ent <- runDB $ getBy address
