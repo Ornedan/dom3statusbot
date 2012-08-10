@@ -184,9 +184,18 @@ updateGame oldEnt = do
           guessStales
           
         log INFO $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
+      | timeToHost old == 0 && timeToHost new /= 0 = do
+        notifyTimerOn
+        log INFO $ printf "Announced timer on in %s." (name new)
+      | timeToHost old /= 0 && timeToHost new == 0 = do
+        notifyTimerOff
+        log INFO $ printf "Announced timer off in %s." (name new)
       | otherwise = return ()
       where
         notifyStart = announce $ printf "Game started: %s" (name new)
+        
+        notifyTimerOn = announce $ printf "Timer turned on in %s" (name new)
+        notifyTimerOff = announce $ printf "Timer turned off in %s" (name new)
         
         notifyNewTurn = return $ execWriter $ do
           tell $ printf "New turn in %s (%d)" (name new) (turn new)
@@ -262,6 +271,14 @@ status = do
   ent <- runDB $ getBy address
   
   when (isJust ent) $ do
+    -- Force immediate update attempt
+    forkAction $ updateGame $ fromJust ent
+    
+    -- Wait 3s
+    liftIO $ threadDelay $ 3 * 1000 * 1000
+    
+    -- Use whatever the game status is now
+    ent <- runDB $ getBy address
     now <- getTime
     let game      = entityVal $ fromJust ent
         info      = gameGameInfo game
