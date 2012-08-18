@@ -13,13 +13,24 @@ import GameInfo
 
 derivePersistField "GameInfo"
 
+
+data GameSource = Manual
+                | GGS
+                deriving (Eq, Read, Show)
+
+derivePersistField "GameSource"
+
+
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
 Game
   -- Primary key, address and port
   host      String
   port      Int
   Address host port
-  
+
+  -- Where did we get this game from
+  source    GameSource
+
   -- When we last poked it
   lastPoll  UTCTime
   

@@ -34,6 +34,7 @@ import Config
 import BotException
 import Database
 import GameInfo
+import GGS
 import Scheduler
 import Util
 
@@ -44,27 +45,22 @@ pollLoop baseState irc = do
   let state    = baseState { sIrc = irc }
       interval = fromIntegral $ cPollInterval $ sConfig baseState
   
-  let pollLoop' = do
+  let loop = do
         -- Poll games
         games <- runDB $ selectList [] []
         forM games $ forkAction . updateGame'
         
         -- Schedule next poll
-        scheduleAction' interval pollLoop'
+        scheduleAction' interval loop
   
   -- Start the loop
-  flip runReaderT state pollLoop'
+  flip runReaderT state loop
   
   where
     updateGame' ent =
       updateGame ent
-      `catch'` (\(e :: BotException) -> do
-                   case e of
-                     FailSilent -> return ()
-                     FailMessage msg -> do
-                       log WARNING $ printf "Exception in pollLoop: %s" msg)
-      `catch'` (\(e :: IOException) -> do
-                   log WARNING $ printf "Exception in pollLoop: %s" (ioeGetErrorString e))
+      `caughtAction`
+      (\msg -> when (not $ null msg) $ log WARNING $ printf "Exception in pollLoop: %s" msg)
 
 
 mkEvent :: ActionState -> ConnectionPool -> String -> Action () -> EventFunc
@@ -133,12 +129,12 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
     h <-fileHandler "bot.log" (read $ cLogLevel config)
     return $ setFormatter h $ simpleLogFormatter "[$time : $prio] $msg"
   updateGlobalLogger (cLogName config) (addHandler logFile)
-
+  
   noticeM (cLogName config) "Bot starting up, configuration loaded OK"
   
   -- Start scheduler
   sched <- mkScheduler
-
+  
   -- Set up IRC
   let state = AS { sConfig = config,
                    sPool   = pool,
@@ -181,6 +177,9 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
       
       -- Start game pollers
       forkIO $ pollLoop state irc
+      
+      -- Start GGS polling
+      forkIO $ ggsLoop state irc
       
       -- Wait for quit
       takeMVar quitMV

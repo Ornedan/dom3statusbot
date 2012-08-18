@@ -23,6 +23,7 @@ import Network.SimpleIRC
 import System.Exit
 import System.Log.Logger
 import System.IO
+import System.IO.Error (ioeGetErrorString)
 import System.Timeout
 import Text.Printf
 
@@ -79,6 +80,17 @@ log prio str = do
 catch' :: Exception e => Action a -> (e -> Action a) -> Action a
 catch' = liftCatch catch
 
+caughtAction :: Action a -> (String -> Action a) -> Action a
+caughtAction action handler =
+  action
+  `catch'` (\(e :: BotException) -> do
+               msg <- case e of
+                 FailSilent      -> return ""
+                 FailMessage msg -> return msg
+               handler msg)
+  `catch'` (\(e :: IOException) ->
+             handler $ ioeGetErrorString e)
+
 forkAction :: Action () -> Action ThreadId
 forkAction action = do
   state <- ask
@@ -108,18 +120,27 @@ scheduleAction' offset action = do
 
 requestGameInfo :: String -> Int -> Action GameInfo
 requestGameInfo host port = do
-  secs <- asks (cConnectTimeout . sConfig)
+  cto <- asks (cConnectTimeout . sConfig)
+  pto <- asks (cPollTimeout . sConfig)
+  
   log DEBUG $ printf "Querying game %s:%d" host port
   
-  mhandle <- liftIO $ timeout (secs * 1000 * 1000) $ connect
+  mhandle <- liftIO $ timeout (cto * 1000 * 1000) $ connect
   
-  case mhandle of
-    Nothing -> do
-      failMsg $ printf "Trying to connect to %s:%d timed out" host port
-    Just handle -> liftIO $ do
-      game <- getGame handle
-      hClose handle
-      return game
+  when (isNothing mhandle) $ do
+    failMsg $ printf "Trying to connect to %s:%d timed out" host port
+  
+  let handle = fromJust mhandle
+  
+  mgame <- liftIO $ timeout (pto * 1000 * 1000) $ do
+    game <- getGame handle
+    hClose handle
+    return game
+  
+  when (isNothing mgame) $ do
+    failMsg $ printf "Querying game from %s:%d timed out" host port
+  
+  return $ fromJust mgame
   
   where
     connect = connectTo host (PortNumber $ fromIntegral port)
@@ -163,20 +184,13 @@ updateGame oldEnt = do
   now <- getTime
   
   -- Update DB
-  log DEBUG $ printf "Pre-runDB update (%s:%d)" host port
-  runDB $ do
-    liftIO $ logM "bot.log" DEBUG $ printf "runDB pre-update (%s:%d)" host port
-    update key [GameLastPoll  =. now,
-                GameLowerName =. (toLowercase $ name game),
-                GameGameInfo  =. game]
-    liftIO $ logM "bot.log" DEBUG $ printf "runDB post-update (%s:%d)" host port
-  log DEBUG $ printf "Post-runDB update (%s:%d)" host port
+  runDB $ update key [GameLastPoll  =. now,
+                      GameLowerName =. (toLowercase $ name game),
+                      GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
   let oldGame = gameGameInfo old
-  log DEBUG $ printf "Processing notifications for %s:%d." host port
   notifications key oldGame game
-  log DEBUG $ printf "Processed notifications for %s:%d" host port
   
   where
     notifications key old new
@@ -228,7 +242,7 @@ updateGame oldEnt = do
           forM_ listens $ \listen -> do
             nick <- return $ listenNick $ entityVal listen
             sayTo (fromString nick) =<< notifyNewTurn
-            log DEBUG $ printf "Notified %s of new turn in %s" nick (name new)
+            log INFO $ printf "Notified %s of new turn in %s" nick (name new)
         
         guessStales = do
           let tthSecs    = timeToHost old `div` 1000
@@ -259,8 +273,9 @@ register = do
     now <- getTime
     game <- requestGameInfo server port
     
-    runDB $ insert $ Game server port now (toLowercase $ name game) game
+    runDB $ insert $ Game server port Manual now (toLowercase $ name game) game
     
+    log NOTICE $ printf "Added game %s" (name game)
     respond $ printf "Added game %s" (name game)
 
 
@@ -272,6 +287,8 @@ unregister = do
   
   when (isJust ent) $ do
     runDB $ deleteBy address
+    
+    log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
     respond $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
 
 

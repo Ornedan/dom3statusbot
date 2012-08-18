@@ -8,14 +8,17 @@ import Data.ByteString
 import Data.Yaml
 
 
-data Config = Config { cIrcServer      :: String,
-                       cIrcNick        :: String,
-                       cIrcChannel     :: String,
+data Config = Config { cIrcServer       :: String,
+                       cIrcNick         :: String,
+                       cIrcChannel      :: String,
                        
-                       cLogName        :: String, 
-                       cLogLevel       :: String,
-                       cConnectTimeout :: Int,
-                       cPollInterval   :: Int }
+                       cLogName         :: String, 
+                       cLogLevel        :: String,
+                       cConnectTimeout  :: Int,
+                       cPollTimeout     :: Int,
+                       cPollInterval    :: Int, 
+                       
+                       cGGSPollInterval :: Int }
             deriving (Show)
 
 instance FromJSON Config where
@@ -27,5 +30,7 @@ instance FromJSON Config where
                          v .: "logfile" <*>
                          v .: "loglevel" <*>
                          v .: "connect-timeout" <*>
-                         v .: "poll-interval"
+                         v .: "poll-timeout" <*>
+                         v .: "poll-interval" <*>
+                         v .: "ggs-poll-interval"
   parseJSON _ = mzero
