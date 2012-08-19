@@ -99,7 +99,7 @@ ggsLoop baseState irc = do
         now <- getTime
         game <- requestGameInfo host port
         
-        runDB $ insert $ Game host port GGS now (toLowercase $ name game) game
+        runDB $ insert $ Game host port GGS [] now (toLowercase $ name game) game
         
         log NOTICE $ printf "Added game %s from GGS" (name game)
         announce $ printf "Added game %s from GGS" (name game)

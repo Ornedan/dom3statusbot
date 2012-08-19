@@ -147,26 +147,44 @@ requestGameInfo host port = do
               `catch` (\(e :: IOException) -> do
                           failMsg $ printf "Could not connect to %s:%d" host port)
 
+getArguments :: Action [String]
+getArguments = asks sArgs >>= return . map toString . filter (not . B.null) . B.split 0x20
 
-getArgumentAddress :: Action (Unique (GameGeneric a) b)
-getArgumentAddress = do
-  args <- asks sArgs
-  case B.break (== 0x20) args of
-    -- No arguments were present? Do nothing
-    ("", "")    -> failSilent
+getArgumentAddress :: [String] -> Action ((Unique (GameGeneric a) b), [String])
+getArgumentAddress args = do
+  case args of
+    -- No arguments were present? Fail the operation
+    [] -> failSilent
     -- One argument is assumed to be the name of a game
-    (name', "") -> do
-      let name = toLowercase $ toString name'
-      mgame <- runDB $ selectFirst [GameLowerName ==. name] []
-      when (isNothing mgame) failSilent
-      let game = entityVal $ fromJust mgame
-      return $ Address (gameHost game) (gamePort game)
-    -- Two arguments: host, port
-    (host, port') -> do
-      port <- liftIO $
-              catch (readIO $ toString port') $
-              (\(e :: SomeException) -> failMsg "Invalid port")
-      return $ Address (toString host) port
+    [name] -> do
+      maddr <- loadAddress name
+      when (isNothing maddr)
+        failSilent
+      return (fromJust maddr, [])
+    -- Two or more: name or host and port, then flags
+    (arg1:arg2:rest) -> do
+      -- Is the first one the name of a game?
+      maddr <- loadAddress arg1
+      case maddr of
+        -- It is
+        Just addr -> return (addr, [])
+        -- Nope. Assume the first two are host and port
+        Nothing -> do
+          let host = arg1
+              port' = arg2
+          port <- liftIO $
+                  catch (readIO port') $
+                  (\(e :: SomeException) -> failMsg "Invalid port")
+          return (Address host port, rest)
+
+  where
+    loadAddress name' = do
+      let name = toLowercase name'
+      ment <- runDB $ selectFirst [GameLowerName ==. name] []
+      case ment of
+        Nothing  -> return Nothing
+        Just ent -> let game = entityVal ent 
+                    in return $ Just $ Address (gameHost game) (gamePort game)
 
 
 -- | Poll the given game and update DB accordingly.
@@ -189,8 +207,9 @@ updateGame oldEnt = do
                       GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
-  let oldGame = gameGameInfo old
-  notifications key oldGame game
+  when (NoAnnounce `notElem` gameFlags old) $ do
+    let oldGame = gameGameInfo old
+    notifications key oldGame game
   
   where
     notifications key old new
@@ -207,7 +226,7 @@ updateGame oldEnt = do
         -- But that's fairly unlikely.
         when (timeToHost old /= 0) $
           guessStales
-          
+        
         log INFO $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
       | timeToHost old == 0 && timeToHost new /= 0 = do
         notifyTimerOn
@@ -264,7 +283,9 @@ updateGame oldEnt = do
 -- | Add the game to tracked games if it's not there yet
 register :: Action ()
 register = do
-  address@(Address server port) <- getArgumentAddress
+  (address@(Address server port), rest) <- getArguments >>= getArgumentAddress
+  flags <- forM rest $ \flag ->
+    liftIO $ catch (readIO flag) (\(e :: SomeException) -> failMsg "Invalid flag")
   
   -- Check that no such game is registered yet
   ent <- runDB $ getBy address
@@ -273,7 +294,7 @@ register = do
     now <- getTime
     game <- requestGameInfo server port
     
-    runDB $ insert $ Game server port Manual now (toLowercase $ name game) game
+    runDB $ insert $ Game server port Manual flags now (toLowercase $ name game) game
     
     log NOTICE $ printf "Added game %s" (name game)
     respond $ printf "Added game %s" (name game)
@@ -282,7 +303,7 @@ register = do
 -- | Remove and announce the removal if the given game exists
 unregister :: Action ()
 unregister = do
-  address <- getArgumentAddress
+  address <- getArguments >>= getArgumentAddress >>= return . fst
   ent <- runDB $ getBy address
   
   when (isJust ent) $ do
@@ -295,7 +316,7 @@ unregister = do
 -- | Respond with the given game's current status
 status :: Action ()
 status = do
-  address <- getArgumentAddress
+  address <- getArguments >>= getArgumentAddress >>= return . fst
   ent <- runDB $ getBy address
   
   when (isJust ent) $ do
@@ -349,7 +370,7 @@ status = do
 -- | Show the list of mods used in the given game
 listMods :: Action ()
 listMods = do
-  address <- getArgumentAddress
+  address <- getArguments >>= getArgumentAddress >>= return . fst
   ent <- runDB $ getBy address
   
   when (isJust ent) $ do
@@ -372,7 +393,7 @@ listGames = do
 
 listen :: Action ()
 listen = do
-  address <- getArgumentAddress
+  address <- getArguments >>= getArgumentAddress >>= return . fst
   nick <- asks (toString . fromJust . mNick . sMsg)
   
   -- Require the game exists
@@ -393,7 +414,7 @@ listen = do
 
 unlisten :: Action ()
 unlisten = do
-  address <- getArgumentAddress
+  address <- getArguments >>= getArgumentAddress >>= return . fst
   nick <- asks (toString . fromJust . mNick . sMsg)
   
   -- Require the game exists

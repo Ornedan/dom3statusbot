@@ -18,7 +18,12 @@ data GameSource = Manual
                 | GGS
                 deriving (Eq, Read, Show)
 
+data GameFlag = NoAnnounce
+              deriving (Eq, Read, Show)
+                
+
 derivePersistField "GameSource"
+derivePersistField "GameFlag"
 
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
@@ -30,6 +35,9 @@ Game
 
   -- Where did we get this game from
   source    GameSource
+  
+  -- Any extra flags?
+  flags     [GameFlag]
 
   -- When we last poked it
   lastPoll  UTCTime
