@@ -207,18 +207,17 @@ updateGame oldEnt = do
                       GameGameInfo  =. game]
   
   -- Check if something worth notifying the channel about has happened
-  when (NoAnnounce `notElem` gameFlags old) $ do
-    let oldGame = gameGameInfo old
-    notifications key oldGame game
+  let oldGame = gameGameInfo old
+  notifications key (NoAnnounce `notElem` gameFlags old) oldGame game
   
   where
-    notifications key old new
+    notifications key canAnnounce old new
       | state old == Waiting && state new == Running = do
         notifyStart
         log INFO $ printf "Announced game start in %s." (name new)
       | turn old /= turn new                         = do
         -- Announce the new turn to channel and to listeners
-        announce =<< notifyNewTurn
+        when canAnnounce (announce =<< makeNewTurnMessage)
         notifyListens
         -- Guess stales - except when the timer is turned off.
         -- It might be possible falsely skip this if it's possible to poll the
@@ -236,12 +235,11 @@ updateGame oldEnt = do
         log INFO $ printf "Announced timer off in %s." (name new)
       | otherwise = return ()
       where
-        notifyStart = announce $ printf "Game started: %s" (name new)
+        notifyStart    = when canAnnounce $ announce $ printf "Game started: %s" (name new)
+        notifyTimerOn  = when canAnnounce $ announce $ printf "Timer turned on in %s" (name new)
+        notifyTimerOff = when canAnnounce $ announce $ printf "Timer turned off in %s" (name new)
         
-        notifyTimerOn = announce $ printf "Timer turned on in %s" (name new)
-        notifyTimerOff = announce $ printf "Timer turned off in %s" (name new)
-        
-        notifyNewTurn = return $ execWriter $ do
+        makeNewTurnMessage = return $ execWriter $ do
           tell $ printf "New turn in %s (%d)" (name new) (turn new)
           
           let defeated = filter ((== DefeatedThisTurn) . player) $ nations new
@@ -260,7 +258,7 @@ updateGame oldEnt = do
           listens <- runDB $ selectList [ListenGame ==. key] []
           forM_ listens $ \listen -> do
             nick <- return $ listenNick $ entityVal listen
-            sayTo (fromString nick) =<< notifyNewTurn
+            sayTo (fromString nick) =<< makeNewTurnMessage
             log INFO $ printf "Notified %s of new turn in %s" nick (name new)
         
         guessStales = do
@@ -270,7 +268,7 @@ updateGame oldEnt = do
               notPresent = filter (not . connected) stales
           -- It's not staling if the turn changes well enough before the deadline
           pollInterval <- asks (cPollInterval . sConfig)
-          when (tthSecs < 3 * pollInterval && length stales > 0) $ announce $ execWriter $ do
+          when (canAnnounce && tthSecs < 3 * pollInterval && length stales > 0) $ announce $ execWriter $ do
             tell $ printf "Potential stales, estimating from %ds before hosting" tthSecs
             when (length notPresent > 0) $ do
               tell ". Not submitted: "
