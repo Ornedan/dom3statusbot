@@ -36,6 +36,7 @@ import Database
 import GameInfo
 import GGS
 import Scheduler
+import ThreadManager
 import Util
 
 
@@ -132,12 +133,16 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
   
   noticeM (cLogName config) "Bot starting up, configuration loaded OK"
   
+  -- Start thread manager
+  manager <- make
+  
   -- Start scheduler
-  sched <- mkScheduler
+  sched <- mkScheduler manager
   
   -- Set up IRC
   let state = AS { sConfig = config,
                    sPool   = pool,
+                   sMgr    = manager,
                    sSched  = sched,
                    sIrc    = error "Read unitialised sIrc",
                    sMsg    = error "Read unitialised sMsg",
@@ -181,6 +186,21 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
       -- Start GGS polling
       forkIO $ ggsLoop state irc
       
+      forkIO $ threadLeakLoop manager
+
       -- Wait for quit
       takeMVar quitMV
       exitSuccess
+
+  where
+    threadLeakLoop manager = forever $ do
+      threads <- getThreads manager
+      states <- forM threads $ getStatus manager
+      
+      let p (Just TRunning) = True
+          p _               = False
+          running = filter p states
+      
+      debugM "dom3statusbot" $ printf "Running threads: %d" (length running)
+      
+      threadDelay $ 10 * 1000 * 1000

@@ -35,11 +35,13 @@ import Database
 import GameInfo
 import Protocol
 import Scheduler
+import ThreadManager
 import Util
 
 
 data ActionState = AS { sConfig :: Config,
                         sPool   :: ConnectionPool,
+                        sMgr    :: ThreadManager,
                         sSched  :: Scheduler,
                         sIrc    :: MIrc,
                         sMsg    :: IrcMessage, 
@@ -94,7 +96,7 @@ caughtAction action handler =
 forkAction :: Action () -> Action ThreadId
 forkAction action = do
   state <- ask
-  liftIO $ forkIO $ runReaderT action state
+  liftIO $ fork (sMgr state) $ runReaderT action state
 
 waitAction :: Int -> Action () -> Action ()
 waitAction wait action = do

@@ -9,10 +9,12 @@ import Data.Time
 
 import qualified Data.Map as Map
 
+import ThreadManager
 import Util
 
 
-data Scheduler = Scheduler { lock    :: MVar (), 
+data Scheduler = Scheduler { manager :: ThreadManager,
+                             lock    :: MVar (), 
                              tasks   :: MVar (Map (UTCTime, Int) (IO ())), 
                              waitTId :: MVar (Maybe ThreadId),
                              counter :: MVar Int }
@@ -24,14 +26,15 @@ locked scheduler action = modifyMVar (lock scheduler) $ \() -> do
   return $! ((), v)
 
 
-mkScheduler :: IO Scheduler
-mkScheduler = do
+mkScheduler :: ThreadManager -> IO Scheduler
+mkScheduler tm = do
   lock <- newMVar ()
   tasks <- newMVar $ Map.empty
   waitTId <- newMVar Nothing
   counter <- newMVar 0
   
-  return $! Scheduler { lock    = lock, 
+  return $! Scheduler { manager = tm,
+                        lock    = lock, 
                         tasks   = tasks,
                         waitTId = waitTId,
                         counter = counter }
@@ -46,7 +49,7 @@ schedule scheduler when task = locked scheduler $ do
   -- Kill the old wake-up thread and spawn a new one
   modifyMVar_ (waitTId scheduler) $ \tid -> do
     maybe (return ()) killThread tid
-    tid' <- forkIO $ run scheduler
+    tid' <- fork (manager scheduler) $ run scheduler
     return $ Just tid'
 
 schedule' :: Scheduler -> NominalDiffTime -> IO () -> IO ()
@@ -68,7 +71,7 @@ run scheduler = do
   -- Remove the task from the queue and run it
   locked scheduler $ do
     modifyMVar_ (tasks scheduler) $ return . Map.deleteMin
-    void $ forkIO $ task
+    void $ fork (manager scheduler) task
 
   -- Schedule next task
   moreTasks <- locked scheduler $ withMVar (tasks scheduler) $ return . not . Map.null
