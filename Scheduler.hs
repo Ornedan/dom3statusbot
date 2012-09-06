@@ -49,7 +49,7 @@ schedule scheduler when task = locked scheduler $ do
   -- Kill the old wake-up thread and spawn a new one
   modifyMVar_ (waitTId scheduler) $ \tid -> do
     maybe (return ()) killThread tid
-    tid' <- fork (manager scheduler) $ run scheduler
+    tid' <- fork (manager scheduler) "Scheduler-run" $ run scheduler
     return $ Just tid'
 
 schedule' :: Scheduler -> NominalDiffTime -> IO () -> IO ()
@@ -71,7 +71,7 @@ run scheduler = do
   -- Remove the task from the queue and run it
   locked scheduler $ do
     modifyMVar_ (tasks scheduler) $ return . Map.deleteMin
-    void $ fork (manager scheduler) task
+    void $ fork (manager scheduler) "Scheduler-exec" task
 
   -- Schedule next task
   moreTasks <- locked scheduler $ withMVar (tasks scheduler) $ return . not . Map.null

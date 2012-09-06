@@ -15,6 +15,7 @@ import Data.List ((\\), intercalate)
 import Data.Maybe
 import Data.Yaml
 import Database.Persist.Sqlite
+import GHC.Conc
 import Network.SimpleIRC
 import Numeric (showHex)
 import System.Exit
@@ -35,8 +36,7 @@ import BotException
 import Database
 import GameInfo
 import GGS
-import Scheduler
-import ThreadManager
+import ThreadPool
 import Util
 
 
@@ -46,16 +46,13 @@ pollLoop baseState irc = do
   let state    = baseState { sIrc = irc }
       interval = fromIntegral $ cPollInterval $ sConfig baseState
   
-  let loop = do
-        -- Poll games
-        games <- runDB $ selectList [] []
-        forM games $ forkAction . updateGame'
-        
-        -- Schedule next poll
-        scheduleAction' interval loop
-  
-  -- Start the loop
-  flip runReaderT state loop
+  forever $ flip runReaderT state $ do
+    -- Poll games
+    games <- runDB $ selectList [] []
+    forM_ games $ forkAction . updateGame'
+    
+    -- Sleep until next poll
+    delay interval
   
   where
     updateGame' ent =
@@ -110,7 +107,7 @@ mkEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg 
         respond $ printf pattern command description
 
 
-main = withSqlitePool "bot.db" 1 $ \pool -> do
+main = withSqlitePool "bot.db" 1 $ \connPool -> do
   -- Set up stderr logging
   errLog <- do
     h <- streamHandler stderr DEBUG
@@ -133,21 +130,17 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
   
   noticeM (cLogName config) "Bot starting up, configuration loaded OK"
   
-  -- Start thread manager
-  manager <- make
-  
-  -- Start scheduler
-  sched <- mkScheduler manager
+  -- Set up thread pool
+  threadPool <- mkThreadPool 4 $ cLogName config
   
   -- Set up IRC
   let state = AS { sConfig = config,
-                   sPool   = pool,
-                   sMgr    = manager,
-                   sSched  = sched,
+                   sCPool  = connPool,
+                   sTPool  = threadPool,
                    sIrc    = error "Read unitialised sIrc",
                    sMsg    = error "Read unitialised sMsg",
                    sArgs   = error "Read unitialised sArgs" }
-      events = mkEvents state pool
+      events = mkEvents state connPool
                [(register,   "register",
                  "Add a game to be tracked by the bot. Takes two arguments: address and port."),
                 (unregister, "unregister",
@@ -167,7 +160,7 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
                                cEvents   = events }
   
   -- Init DB (if necessary)
-  runSqlPool (runMigration migrateAll) pool
+  runSqlPool (runMigration migrateAll) connPool
   
   -- Connect to IRC
   eIrc <- connect ircConfig True False
@@ -178,29 +171,14 @@ main = withSqlitePool "bot.db" 1 $ \pool -> do
       code <- replicateM 4 (randomIO :: IO Int) >>= return . concatMap (flip showHex "" . abs)
       quitMV <- newEmptyMVar
       noticeM (cLogName config) $ printf "Quit code: '%s'" code
-      addEvent irc $ Privmsg $ mkEvent state pool "quit" $ quit code quitMV
+      addEvent irc $ Privmsg $ mkEvent state connPool "quit" $ quit code quitMV
       
       -- Start game pollers
-      forkIO $ pollLoop state irc
+      forkIO (pollLoop state irc) >>= flip labelThread "pollLoop-start"
       
       -- Start GGS polling
-      forkIO $ ggsLoop state irc
-      
-      forkIO $ threadLeakLoop manager
+      forkIO (ggsLoop state irc) >>= flip labelThread "ggsLoop-start"
 
       -- Wait for quit
       takeMVar quitMV
       exitSuccess
-
-  where
-    threadLeakLoop manager = forever $ do
-      threads <- getThreads manager
-      states <- forM threads $ getStatus manager
-      
-      let p (Just TRunning) = True
-          p _               = False
-          running = filter p states
-      
-      debugM "dom3statusbot" $ printf "Running threads: %d" (length running)
-      
-      threadDelay $ 10 * 1000 * 1000

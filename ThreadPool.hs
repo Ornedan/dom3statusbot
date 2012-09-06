@@ -1,18 +1,51 @@
-{-|
-  A simple thread management API inspired by the one in chapter
-  24 of /Real World Haskell/.
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 
-  See <http://book.realworldhaskell.org/read/concurrent-and-multicore-programming.html>.
+module ThreadPool 
+       (ThreadPool, mkThreadPool, runInPool)
+       where
 
-  Intended to be imported qualified (suggestion: TM).
- -}
+import Prelude hiding (catch)
 
-module ThreadManager
-  ( ThreadManager
-  , ThreadStatus (..)
-  , make
-  , fork, forkn, getStatus, getThreads, waitFor, waitForAll
-  ) where
+import GHC.Conc
+import Control.Concurrent.Chan
+import Control.Exception
+import Control.Monad
+import System.Log.Logger
+
+
+
+data ThreadPool = ThreadPool { chan    :: Chan (IO ()),
+                               threads :: [ThreadId] }
+
+
+mkThreadPool :: Int -> String -> IO ThreadPool
+mkThreadPool n logName = do
+  chan <- newChan
+  threads <- replicateM n $ forkIO $ poolThread chan logName
+  forM (zip threads [1 ..]) $ \(tid, n) -> labelThread tid $ "poolThread-" ++ (show n)
+  
+  return ThreadPool { chan = chan,
+                      threads = threads }
+
+runInPool :: ThreadPool -> IO () -> IO ()
+runInPool = writeChan . chan
+
+poolThread :: Chan (IO ()) -> String -> IO ()
+poolThread chan logName = forever $ do
+  action <- readChan chan
+  action `catch` logException
+  
+  where
+    logException :: SomeException -> IO ()
+    logException e = logM logName WARNING $ "Uncaught exception in poolThread: " ++ show e
+
+{-
+
+
+
+
+
+
 
 import Control.Concurrent      (ThreadId, forkIO)
 import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar, readMVar)
@@ -21,9 +54,9 @@ import Control.Monad           (join, replicateM, when)
 import qualified Data.Map as M
 
 data ThreadStatus =
-    TRunning
-  | TFinished
-  | TThrew SomeException
+    Running
+  | Finished
+  | Threw SomeException
   deriving Show
 
 newtype ThreadManager = TM (MVar (M.Map ThreadId (MVar ThreadStatus)))
@@ -40,7 +73,7 @@ fork (TM tm) action =
         state <- newEmptyMVar
         tid <- forkIO $ do
             r <- try action
-            putMVar state (either TThrew (const TFinished) r)
+            putMVar state (either Threw (const Finished) r)
         return (M.insert tid state m, tid)
 
 -- | Make the given number of managed threads.
@@ -56,11 +89,8 @@ getStatus (TM tm) tid =
         Just state -> tryTakeMVar state >>= \mst ->
           return $
             case mst of
-              Nothing  -> (m, Just TRunning)
+              Nothing  -> (m, Just Running)
               Just sth -> (M.delete tid m, Just sth)
-
-getThreads :: ThreadManager -> IO [ThreadId]
-getThreads (TM tm) = readMVar tm >>= return . M.keys
 
 -- | Block until a specific managed thread terminates.
 waitFor :: ThreadManager -> ThreadId -> IO (Maybe ThreadStatus)
@@ -83,5 +113,6 @@ waitForAll tm@(TM tmMvar) = do
   where
     checkStatus :: Maybe ThreadStatus -> Bool -> Bool
     checkStatus _ True = True
-    checkStatus (Just TRunning) False = True
+    checkStatus (Just Running) False = True
     checkStatus _ False = False
+-}

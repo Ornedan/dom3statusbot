@@ -34,15 +34,13 @@ import Config
 import Database
 import GameInfo
 import Protocol
-import Scheduler
-import ThreadManager
+import ThreadPool
 import Util
 
 
 data ActionState = AS { sConfig :: Config,
-                        sPool   :: ConnectionPool,
-                        sMgr    :: ThreadManager,
-                        sSched  :: Scheduler,
+                        sCPool  :: ConnectionPool,
+                        sTPool  :: ThreadPool,
                         sIrc    :: MIrc,
                         sMsg    :: IrcMessage, 
                         sArgs   :: ByteString }
@@ -68,7 +66,7 @@ sayTo to str = do
 
 runDB :: SqlPersist IO a -> Action a
 runDB act = do
-  pool <- asks sPool
+  pool <- asks sCPool
   liftIO $ runSqlPool act pool
 
 getTime :: Action UTCTime
@@ -92,11 +90,18 @@ caughtAction action handler =
                handler msg)
   `catch'` (\(e :: IOException) ->
              handler $ ioeGetErrorString e)
-
+{-
 forkAction :: Action () -> Action ThreadId
 forkAction action = do
   state <- ask
-  liftIO $ fork (sMgr state) $ runReaderT action state
+  liftIO $ forkIO $ runReaderT action state
+-}
+forkAction :: Action () -> Action ()
+forkAction action = do
+  state <- ask
+  
+  liftIO $ runInPool (sTPool state) $ runReaderT action state
+  --liftIO $ forkIO $ runReaderT action state
 
 waitAction :: Int -> Action () -> Action ()
 waitAction wait action = do
@@ -109,15 +114,8 @@ waitAction wait action = do
     timeout wait $ takeMVar mv
   return ()
 
-scheduleAction :: UTCTime -> Action () -> Action ()
-scheduleAction when action = do
-  state <- ask
-  liftIO $ schedule (sSched state) when $ runReaderT action state
-
-scheduleAction' :: NominalDiffTime -> Action () -> Action ()
-scheduleAction' offset action = do
-  state <- ask
-  liftIO $ schedule' (sSched state) offset $ runReaderT action state
+delay :: Int -> Action ()
+delay secs = liftIO $ longThreadDelay $ secs * 10^6
 
 
 requestGameInfo :: String -> Int -> Action GameInfo
@@ -336,8 +334,9 @@ status = do
       | state game == Waiting = showWaiting game
       | otherwise             = showRunning sincePoll game
     showWaiting game =
-      printf "%s: Waiting for players, %d pretenders submitted"
+      printf "%s: %s; Waiting for players, %d pretenders submitted"
       (name game)
+      (maybe "Unknown era" showEra $ era game)
       (length $ filter ((== Human) . player) $ nations game)
     showRunning sincePoll game = execWriter $ do
       let players = filter ((== Human) . player) $ nations game
@@ -353,6 +352,11 @@ status = do
         tell $ printf " (%d AIs)" nAIs
       when (sincePoll > 5 * 60 * 1000) $
         tell $ printf ". Last poll %s ago" (formatTime sincePoll)
+    
+    showEra :: Era -> String
+    showEra Early  = "EA"
+    showEra Middle = "MA"
+    showEra Late   = "LA"
     
     showTime :: Int -> Int -> String
     showTime tth sincePoll

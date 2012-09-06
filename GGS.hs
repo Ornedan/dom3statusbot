@@ -60,27 +60,25 @@ ggsLoop baseState irc = do
   let state    = baseState { sIrc = irc }
       interval = fromIntegral $ cGGSPollInterval $ sConfig baseState
   
-  let loop = do
-        -- Get currently known games from DB and GGS
-        dbGames <- runDB $ selectList [] []
-        mggsGames <- pollGGS'
-        
-        when (isJust mggsGames) $ do
-          let ggsGames = fromJust mggsGames
-              dbSet   = Set.fromList $ map ((gameHost &&& gamePort) . entityVal) dbGames
-              ggsSet  = Set.fromList ggsGames
-              -- Games known by GGS and not by us
-              added   = Set.toList $ ggsSet Set.\\ dbSet
-              -- Games known by us, but not by GGS. Note that these might also just be games
-              -- not registered on GGS.
-              removed = Set.toList $ dbSet Set.\\ ggsSet
-          
-          forM_ added add
-          forM_ removed remove
-        
-        scheduleAction' interval loop
-  
-  flip runReaderT state loop
+  forever $ flip runReaderT state $ do
+    -- Get currently known games from DB and GGS
+    dbGames <- runDB $ selectList [] []
+    mggsGames <- pollGGS'
+    
+    when (isJust mggsGames) $ do
+      let ggsGames = fromJust mggsGames
+          dbSet   = Set.fromList $ map ((gameHost &&& gamePort) . entityVal) dbGames
+          ggsSet  = Set.fromList ggsGames
+          -- Games known by GGS and not by us
+          added   = Set.toList $ ggsSet Set.\\ dbSet
+          -- Games known by us, but not by GGS. Note that these might also just be games
+          -- not registered on GGS.
+          removed = Set.toList $ dbSet Set.\\ ggsSet
+      
+      forM_ added add
+      forM_ removed remove
+    
+    delay interval
   
   where
     pollGGS' = liftIO (pollGGS >>= return . Just)
