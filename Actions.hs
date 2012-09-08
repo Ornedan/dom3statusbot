@@ -115,7 +115,7 @@ waitAction wait action = do
   return ()
 
 delay :: Int -> Action ()
-delay secs = liftIO $ longThreadDelay $ secs * 10^6
+delay secs = liftIO $ longThreadDelay $ 10^6 * fromIntegral secs
 
 
 requestGameInfo :: String -> Int -> Action GameInfo
@@ -342,8 +342,9 @@ status = do
       let players = filter ((== Human) . player) $ nations game
       let tth     = timeToHost game
       tell $
-        printf "%s: %s, %d/%d left to submit"
+        printf "%s: turn %d, %s, %d/%d left to submit"
         (name game)
+        (turn game)
         (showTime tth sincePoll)
         (length $ filter (not . submitted) players)
         (length $ players)
