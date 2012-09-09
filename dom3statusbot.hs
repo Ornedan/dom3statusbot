@@ -147,6 +147,8 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
                  "Stop the bot tracking the given game."),
                 (status,     "status",
                  "Show information about the current status of the given game."),
+                (details,    "details",
+                 "Show details information about the current status of the given game."),
                 (listMods,   "mods",
                  "Show the names of the mods used in the given game."),
                 (listGames,  "list",

@@ -147,6 +147,20 @@ requestGameInfo host port = do
               `catch` (\(e :: IOException) -> do
                           failMsg $ printf "Could not connect to %s:%d" host port)
 
+requestCurrentGameInfo :: Unique (GameGeneric SqlPersist) SqlPersist -> Action (Maybe (Entity Game))
+requestCurrentGameInfo address@(Address host port) = do
+  ment <- runDB $ getBy address
+  
+  case ment of
+    Nothing -> return Nothing
+    Just ent  -> do
+      -- Force immediate update attempt and wait up to 3s for it to complete
+      waitAction (3 * 1000 * 1000) $ updateGame ent
+      
+      -- Return whatever is now the game status
+      runDB $ getBy address
+
+
 getArguments :: Action [String]
 getArguments = asks sArgs >>= return . map toString . filter (not . B.null) . B.split 0x20
 
@@ -315,16 +329,11 @@ unregister = do
 status :: Action ()
 status = do
   address <- getArguments >>= getArgumentAddress >>= return . fst
-  ent <- runDB $ getBy address
+  ment <- requestCurrentGameInfo address
   
-  when (isJust ent) $ do
-    -- Force immediate update attempt and wait up to 3s for it to complete
-    waitAction (3 * 1000 * 1000) $ updateGame $ fromJust ent
-    
-    -- Use whatever the game status is now
-    ent <- runDB $ getBy address
+  when (isJust ment) $ do
     now <- getTime
-    let game      = entityVal $ fromJust ent
+    let game      = entityVal $ fromJust ment
         info      = gameGameInfo game
         sincePoll = floor $ 1000 * diffUTCTime now (gameLastPoll game)
     respond $ showGame sincePoll info
@@ -372,6 +381,42 @@ status = do
       in printf "%02d:%02d:%02d" hours mins secs
 
 
+-- | Respond with the given game's current detailed status
+details :: Action ()
+details = do
+  -- First, normal status
+  status
+  
+  -- Then per-nation info
+  address <- getArguments >>= getArgumentAddress >>= return . fst
+  ment <- runDB $ getBy address
+  
+  when (isJust ment) $ do
+    let game      = entityVal $ fromJust ment
+        info      = gameGameInfo game
+    forM_ (nations info) $ respond . showNation
+  
+  where
+    showNation :: Nation -> String
+    showNation nation = execWriter $ do
+      -- Basic info
+      tell $ printf "  %s: %s" (nationName $ nationId nation) (showPlayer $ player nation)
+      
+      -- For human players, show submitted & connected
+      when (player nation == Human) $ do
+        tell ", "
+        tell $ if submitted nation then "submitted" else "not submitted"
+        when (connected nation) $ do
+          tell $ ", connected"
+    
+    showPlayer :: Player -> String
+    showPlayer Empty            = "empty slot"
+    showPlayer Human            = "human"
+    showPlayer AI               = "AI"
+    showPlayer DefeatedThisTurn = "defeated this turn"
+    showPlayer DefeatedEarlier  = "defeated"
+
+
 -- | Show the list of mods used in the given game
 listMods :: Action ()
 listMods = do
@@ -395,6 +440,7 @@ listGames = do
   let names = map (name . gameGameInfo . entityVal) games
   
   respond $ printf "Tracking games: %s" (intercalate ", " names)
+
 
 listen :: Action ()
 listen = do
