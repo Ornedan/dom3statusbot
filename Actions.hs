@@ -384,26 +384,38 @@ status = do
 -- | Respond with the given game's current detailed status
 details :: Action ()
 details = do
-  -- First, normal status
-  status
-  
-  -- Then per-nation info
-  address <- getArguments >>= getArgumentAddress >>= return . fst
-  ment <- runDB $ getBy address
-  
-  when (isJust ment) $ do
-    let game      = entityVal $ fromJust ment
-        info      = gameGameInfo game
-    forM_ (nations info) $ respond . showNation
+  -- Set the response to always go to the
+  state <- ask
+  let state' = state { sMsg = (sMsg state) { mOrigin = mNick $ sMsg $ state } }
+  liftIO $ runReaderT details' state'
   
   where
-    showNation :: Nation -> String
-    showNation nation = execWriter $ do
+    details' = do
+      -- First, normal status
+      status
+      
+      -- Then per-nation info
+      address <- getArguments >>= getArgumentAddress >>= return . fst
+      ment <- runDB $ getBy address
+      
+      when (isJust ment) $ do
+        let game = entityVal $ fromJust ment
+            info = gameGameInfo game
+            Address host port = address
+        
+        -- Show host and port
+        respond $ printf " Address: %s:%d" host port
+        
+        forM_ (nations info) $ respond . showNation info
+    
+    showNation :: GameInfo -> Nation -> String
+    showNation game nation = execWriter $ do
       -- Basic info
       tell $ printf "  %s: %s" (nationName $ nationId nation) (showPlayer $ player nation)
       
-      -- For human players, show submitted & connected
-      when (player nation == Human) $ do
+      -- For human players, show submitted & connected.
+      -- Only relevant when the game is running
+      when (state game == Running && player nation == Human) $ do
         tell ", "
         tell $ if submitted nation then "submitted" else "not submitted"
         when (connected nation) $ do
