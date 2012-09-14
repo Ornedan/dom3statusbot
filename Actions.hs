@@ -374,11 +374,12 @@ status = do
       | otherwise = printf "TTH %s" $ formatTime $ tth - sincePoll
     
     formatTime :: Int -> String
-    formatTime ms =
-      let (hours, ms') = ms `quotRem` (60 * 60 * 1000)
+    formatTime msec =
+      let ms           = abs msec
+          (hours, ms') = ms `quotRem` (60 * 60 * 1000)
           (mins, ms'') = ms' `quotRem` (60 * 1000)
           secs         = ms'' `quot` 1000
-      in printf "%02d:%02d:%02d" hours mins secs
+      in printf "%s%02d:%02d:%02d" (if msec < 0 then "-" else "" :: String) hours mins secs
 
 
 -- | Respond with the given game's current detailed status

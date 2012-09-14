@@ -176,11 +176,21 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
       addEvent irc $ Privmsg $ mkEvent state connPool "quit" $ quit code quitMV
       
       -- Start game pollers
-      forkIO (pollLoop state irc) >>= flip labelThread "pollLoop-start"
+      forkIO (pollLoop' state irc) >>= flip labelThread "pollLoop-start"
       
       -- Start GGS polling
-      forkIO (ggsLoop state irc) >>= flip labelThread "ggsLoop-start"
+      forkIO (ggsLoop' state irc) >>= flip labelThread "ggsLoop-start"
 
       -- Wait for quit
       takeMVar quitMV
       exitSuccess
+
+  where
+    pollLoop' state irc =
+      pollLoop state irc
+      `catch`
+      (\(e :: SomeException) -> criticalM (cLogName $ sConfig state) $ "pollLoop crashed, exception: " ++ show e)
+    ggsLoop' state irc =
+      ggsLoop state irc
+      `catch`
+      (\(e :: SomeException) -> criticalM (cLogName $ sConfig state) $ "ggsLoop crashed, exception: " ++ show e)
