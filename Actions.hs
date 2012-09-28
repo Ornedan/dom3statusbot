@@ -348,18 +348,22 @@ status = do
       (maybe "Unknown era" showEra $ era game)
       (length $ filter ((== Human) . player) $ nations game)
     showRunning sincePoll game = execWriter $ do
-      let players = filter ((== Human) . player) $ nations game
-      let tth     = timeToHost game
+      let players      = filter ((== Human) . player) $ nations game
+      let tth          = timeToHost game
+      let notSubmitted = filter (not . submitted) players
       tell $
         printf "%s: turn %d, %s, %d/%d left to submit"
         (name game)
         (turn game)
         (showTime tth sincePoll)
-        (length $ filter (not . submitted) players)
+        (length notSubmitted)
         (length $ players)
       let nAIs = length $ filter ((== AI) . player) $ nations game
       when (nAIs > 0) $
         tell $ printf " (%d AIs)" nAIs
+      when (length notSubmitted <= 3) $ do
+        tell ". Not submitted: "
+        tell $ intercalate ", " $ map (nationName . nationId) notSubmitted
       when (sincePoll > 5 * 60 * 1000) $
         tell $ printf ". Last poll %s ago" (formatTime sincePoll)
     
