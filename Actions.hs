@@ -358,12 +358,12 @@ status = do
         (showTime tth sincePoll)
         (length notSubmitted)
         (length $ players)
+      when (length notSubmitted <= 3) $ do
+        tell ": "
+        tell $ intercalate ", " $ map (nationName . nationId) notSubmitted
       let nAIs = length $ filter ((== AI) . player) $ nations game
       when (nAIs > 0) $
-        tell $ printf " (%d AIs)" nAIs
-      when (length notSubmitted <= 3) $ do
-        tell ". Not submitted: "
-        tell $ intercalate ", " $ map (nationName . nationId) notSubmitted
+        tell $ printf ", %d AIs" nAIs
       when (sincePoll > 5 * 60 * 1000) $
         tell $ printf ". Last poll %s ago" (formatTime sincePoll)
     
