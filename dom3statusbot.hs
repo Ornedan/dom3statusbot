@@ -69,11 +69,11 @@ mkEvent baseState pool command action = event
       let cmdStr = fromString $ "!" ++ command
           prefix = fromString $ "!" ++ command ++ " "
       msg <- asks (mMsg . sMsg)
-      origin <- asks (mOrigin . sMsg)
+      nick <- asks (mNick . sMsg)
       when (prefix `B.isPrefixOf` msg || msg == cmdStr) $ do
         log INFO $
           printf "Action '%s' requested by '%s': %s"
-          command (maybe "-" toString origin) (toString msg)
+          command (maybe "-" toString nick) (toString msg)
         action
     -- And exception handlers
     action'' = action'
