@@ -108,12 +108,16 @@ ggsLoop baseState irc = do
       (\msg -> when (not $ null msg) $ log WARNING $ printf "pollGGS: Failed to remove game (%s:%d): %s" host (show port) msg)
     remove' host port = do
       let address = Address host port
-      ent <- runDB $ getBy address
+      ment <- runDB $ getBy address
       
       -- Only remove games that were added from GGS here. Anything added
       -- manually needs to be removed manually.
-      when (isJust ent && gameSource (entityVal $ fromJust ent) == GGS) $ do
-        runDB $ deleteBy address
-        
-        log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
-        announce $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
+      when (isJust ment) $ do
+        let ent = fromJust ment
+        when (gameSource (entityVal ent) == GGS) $ do
+          runDB $ do
+            deleteWhere [ListenGame ==. entityKey ent]
+            deleteBy address
+          
+          log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
+          announce $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)

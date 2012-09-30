@@ -316,13 +316,17 @@ register = do
 unregister :: Action ()
 unregister = do
   address <- getArguments >>= getArgumentAddress >>= return . fst
-  ent <- runDB $ getBy address
+  ment <- runDB $ getBy address
   
-  when (isJust ent) $ do
-    runDB $ deleteBy address
+  when (isJust ment) $ do
+    let ent = fromJust ment
     
-    log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
-    respond $ printf "Removed game %s" (name $ gameGameInfo $ entityVal $ fromJust ent)
+    runDB $ do
+      deleteWhere [ListenGame ==. entityKey ent]
+      deleteBy address
+    
+    log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
+    respond $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
 
 
 -- | Respond with the given game's current status
@@ -358,7 +362,7 @@ status = do
         (showTime tth sincePoll)
         (length notSubmitted)
         (length $ players)
-      when (length notSubmitted <= 3) $ do
+      when (length notSubmitted > 0 && length notSubmitted <= 3) $ do
         tell ": "
         tell $ intercalate ", " $ map (nationName . nationId) notSubmitted
       let nAIs = length $ filter ((== AI) . player) $ nations game
