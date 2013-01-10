@@ -436,6 +436,7 @@ details = do
     showPlayer Empty            = "empty slot"
     showPlayer Human            = "human"
     showPlayer AI               = "AI"
+    showPlayer Closed           = "closed slot"
     showPlayer DefeatedThisTurn = "defeated this turn"
     showPlayer DefeatedEarlier  = "defeated"
 
