@@ -4,7 +4,17 @@ import Control.Concurrent
 import Data.Char
 import Data.Int
 import Data.List
+import Text.Printf
 
+
+
+msecToString :: Int -> String
+msecToString msec =
+  let ms           = abs msec
+      (hours, ms') = ms `quotRem` (60 * 60 * 1000)
+      (mins, ms'') = ms' `quotRem` (60 * 1000)
+      secs         = ms'' `quot` 1000
+  in printf "%s%02d:%02d:%02d" (if msec < 0 then "-" else "" :: String) hours mins secs
 
 
 toLowercase :: String -> String

@@ -164,7 +164,7 @@ requestCurrentGameInfo address@(Address host port) = do
 getArguments :: Action [String]
 getArguments = asks sArgs >>= return . map toString . filter (not . B.null) . B.split 0x20
 
-getArgumentAddress :: [String] -> Action ((Unique (GameGeneric a) b), [String])
+getArgumentAddress :: [String] -> Action (Unique (GameGeneric a) b, [String])
 getArgumentAddress args = do
   case args of
     -- No arguments were present? Fail the operation
@@ -181,14 +181,14 @@ getArgumentAddress args = do
       maddr <- loadAddress arg1
       case maddr of
         -- It is
-        Just addr -> return (addr, [])
+        Just addr -> return (addr, arg2:rest)
         -- Nope. Assume the first two are host and port
         Nothing -> do
           let host = arg1
               port' = arg2
           port <- liftIO $
                   catch (readIO port') $
-                  (\(e :: SomeException) -> failMsg "Invalid port")
+                  (\(e :: SomeException) -> failMsg "Invalid host & port. Note that Dominions 3 does not allow game names to contain spaces.")
           return (Address host port, rest)
 
   where
@@ -222,10 +222,11 @@ updateGame oldEnt = do
   
   -- Check if something worth notifying the channel about has happened
   let oldGame = gameGameInfo old
-  notifications key (NoAnnounce `notElem` gameFlags old) oldGame game
+  pollInterval <- asks (cPollInterval . sConfig)
+  notifications (NoAnnounce `notElem` gameFlags old) pollInterval key oldGame game
   
   where
-    notifications key canAnnounce old new
+    notifications canAnnounce pollInterval key old new
       | state old == Waiting && state new == Running = do
         notifyStart
         log INFO $ printf "Announced game start in %s." (name new)
@@ -241,17 +242,26 @@ updateGame oldEnt = do
           guessStales
         
         log INFO $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
+      --- Timer changes
       | timeToHost old == 0 && timeToHost new /= 0 = do
         notifyTimerOn
         log INFO $ printf "Announced timer on in %s." (name new)
       | timeToHost old /= 0 && timeToHost new == 0 = do
         notifyTimerOff
         log INFO $ printf "Announced timer off in %s." (name new)
+      | abs (timeToHost old - timeToHost new) > 5 * pollInterval * 1000 = do
+        notifyTimerChange
+        log INFO $ printf "Announced timer change in %s." (name new)
       | otherwise = return ()
       where
-        notifyStart    = when canAnnounce $ announce $ printf "Game started: %s" (name new)
-        notifyTimerOn  = when canAnnounce $ announce $ printf "Timer turned on in %s" (name new)
-        notifyTimerOff = when canAnnounce $ announce $ printf "Timer turned off in %s" (name new)
+        notifyStart =
+          when canAnnounce $ announce $ printf "Game started: %s" (name new)
+        notifyTimerOn =
+          when canAnnounce $ announce $ printf "Timer turned on in %s, now %s" (name new) (msecToString $ timeToHost new)
+        notifyTimerOff =
+          when canAnnounce $ announce $ printf "Timer turned off in %s" (name new)
+        notifyTimerChange =
+          when canAnnounce $ announce $ printf "Timer changed in %s, now %s" (name new) (msecToString $ timeToHost new)
         
         makeNewTurnMessage = return $ execWriter $ do
           tell $ printf "New turn in %s (%d)" (name new) (turn new)
@@ -288,7 +298,7 @@ updateGame oldEnt = do
               tell ". Not submitted: "
               tell $ intercalate ", " $ map (nationName . nationId) notPresent
             when (length present > 0) $ do
-              tell ". Connected, but no submitted: "
+              tell ". Connected, but not submitted: "
               tell $ intercalate ", " $ map (nationName . nationId) present
 
 
@@ -369,7 +379,7 @@ status = do
       when (nAIs > 0) $
         tell $ printf ", %d AIs" nAIs
       when (sincePoll > 5 * 60 * 1000) $
-        tell $ printf ". Last poll %s ago" (formatTime sincePoll)
+        tell $ printf ". Last poll %s ago" (msecToString sincePoll)
     
     showEra :: Era -> String
     showEra Early  = "EA"
@@ -379,15 +389,7 @@ status = do
     showTime :: Int -> Int -> String
     showTime tth sincePoll
       | tth == 0  = "no timer"
-      | otherwise = printf "TTH %s" $ formatTime $ tth - sincePoll
-    
-    formatTime :: Int -> String
-    formatTime msec =
-      let ms           = abs msec
-          (hours, ms') = ms `quotRem` (60 * 60 * 1000)
-          (mins, ms'') = ms' `quotRem` (60 * 1000)
-          secs         = ms'' `quot` 1000
-      in printf "%s%02d:%02d:%02d" (if msec < 0 then "-" else "" :: String) hours mins secs
+      | otherwise = printf "TTH %s" $ msecToString $ tth - sincePoll
 
 
 -- | Respond with the given game's current detailed status
