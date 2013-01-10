@@ -223,10 +223,10 @@ updateGame oldEnt = do
   -- Check if something worth notifying the channel about has happened
   let oldGame = gameGameInfo old
   pollInterval <- asks (cPollInterval . sConfig)
-  notifications (NoAnnounce `notElem` gameFlags old) pollInterval key oldGame game
+  notifications (NoAnnounce `notElem` gameFlags old) pollInterval (gameLastPoll old) now key oldGame game
   
   where
-    notifications canAnnounce pollInterval key old new
+    notifications canAnnounce pollInterval lastPoll curPoll key old new
       | state old == Waiting && state new == Running = do
         notifyStart
         log INFO $ printf "Announced game start in %s." (name new)
@@ -238,30 +238,35 @@ updateGame oldEnt = do
         -- It might be possible falsely skip this if it's possible to poll the
         -- game at exactly TTH 0 and we happen to do so.
         -- But that's fairly unlikely.
-        when (timeToHost old /= 0) $
+        when (tthOld /= 0) $
           guessStales
         
         log INFO $ printf "Announced new turn in %s. (%s) -> (%s)" (name new) (show old) (show new)
       --- Timer changes
-      | timeToHost old == 0 && timeToHost new /= 0 = do
+      | tthOld == 0 && tthNew /= 0 = do
         notifyTimerOn
         log INFO $ printf "Announced timer on in %s." (name new)
-      | timeToHost old /= 0 && timeToHost new == 0 = do
+      | tthOld /= 0 && tthNew == 0 = do
         notifyTimerOff
         log INFO $ printf "Announced timer off in %s." (name new)
-      | abs (timeToHost old - timeToHost new) > 5 * pollInterval * 1000 = do
+      | let tthDelta = tthNew - tthOld
+            elapsed = floor $ (curPoll `diffUTCTime` lastPoll) * 1000
+        in tthDelta > 0 ||                                       -- Timer value has grown
+           abs tthDelta > elapsed + 5 * pollInterval * 1000 = do -- Or timer has changed noticeably more than the elapsed time
         notifyTimerChange
-        log INFO $ printf "Announced timer change in %s." (name new)
+        log INFO $ printf "Announced timer change in %s: %s at %s -> %s at %s." (name new) (msecToString tthOld) (show lastPoll) (msecToString tthNew) (show curPoll)
       | otherwise = return ()
       where
+        tthOld = timeToHost old
+        tthNew = timeToHost new
         notifyStart =
           when canAnnounce $ announce $ printf "Game started: %s" (name new)
         notifyTimerOn =
-          when canAnnounce $ announce $ printf "Timer turned on in %s, now %s" (name new) (msecToString $ timeToHost new)
+          when canAnnounce $ announce $ printf "Timer turned on in %s, now %s" (name new) (msecToString tthNew)
         notifyTimerOff =
           when canAnnounce $ announce $ printf "Timer turned off in %s" (name new)
         notifyTimerChange =
-          when canAnnounce $ announce $ printf "Timer changed in %s, now %s" (name new) (msecToString $ timeToHost new)
+          when canAnnounce $ announce $ printf "Timer changed in %s, now %s" (name new) (msecToString tthNew)
         
         makeNewTurnMessage = return $ execWriter $ do
           tell $ printf "New turn in %s (%d)" (name new) (turn new)
@@ -286,7 +291,7 @@ updateGame oldEnt = do
             log INFO $ printf "Notified %s of new turn in %s" nick (name new)
         
         guessStales = do
-          let tthSecs    = timeToHost old `div` 1000
+          let tthSecs    = tthOld `div` 1000
               stales     = filter (not . submitted) $ filter ((== Human) . player) $ nations old
               present    = filter connected stales
               notPresent = filter (not . connected) stales
