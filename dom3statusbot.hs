@@ -61,8 +61,8 @@ pollLoop baseState irc = do
       (\msg -> when (not $ null msg) $ log WARNING $ printf "Exception in pollLoop: %s" msg)
 
 
-mkEvent :: ActionState -> ConnectionPool -> String -> Action () -> EventFunc
-mkEvent baseState pool command action = event
+mkMsgEvent :: ActionState -> ConnectionPool -> String -> Action () -> EventFunc
+mkMsgEvent baseState pool command action = event
   where
     -- Add command string check
     action' = do
@@ -99,10 +99,10 @@ mkEvent baseState pool command action = event
       in runReaderT action'' state
 
 
-mkEvents :: ActionState -> ConnectionPool -> [(Action (), String, String)] -> [IrcEvent]
-mkEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg $ mkEvent baseState pool command action) events
+mkMsgEvents :: ActionState -> ConnectionPool -> [(Action (), String, String)] -> [IrcEvent]
+mkMsgEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg $ mkMsgEvent baseState pool command action) events
   where
-    mkHelp = Privmsg $ mkEvent baseState pool "help" $ do
+    mkHelp = Privmsg $ mkMsgEvent baseState pool "help" $ do
       let longest = maximum $ 4 : map (\(_,cmd,_) -> length cmd) events
           pattern = printf "!%%-%ds %%s" longest
       respond $ printf pattern ("help" :: String) ("Display this list of commands." :: String)
@@ -144,7 +144,7 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
                    sIrc    = error "Read unitialised sIrc",
                    sMsg    = error "Read unitialised sMsg",
                    sArgs   = error "Read unitialised sArgs" }
-      events = mkEvents state connPool
+      events = mkMsgEvents state connPool
                [(register,   "register",
                  "Add a game to be tracked by the bot. Takes two arguments: address and port."),
                 (unregister, "unregister",
@@ -177,7 +177,10 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
       code <- replicateM 4 (randomIO :: IO Int) >>= return . concatMap (flip showHex "" . abs)
       quitMV <- newEmptyMVar
       noticeM (cLogName config) $ printf "Quit code: '%s'" code
-      addEvent irc $ Privmsg $ mkEvent state connPool "quit" $ quit code quitMV
+      addEvent irc $ Privmsg $ mkMsgEvent state connPool "quit" $ quit code quitMV
+      
+      -- Set up reconnecting
+      addEvent irc $ handleDisconnect config quitMV
       
       -- Start game pollers
       forkIO (pollLoop' state irc) >>= flip labelThread "pollLoop-start"
@@ -186,7 +189,7 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
       forkIO (ggsLoop' state irc) >>= flip labelThread "ggsLoop-start"
 
       -- Wait for quit
-      takeMVar quitMV
+      readMVar quitMV
       exitSuccess
 
   where
@@ -198,3 +201,19 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
       ggsLoop state irc
       `catch`
       (\(e :: SomeException) -> criticalM (cLogName $ sConfig state) $ "ggsLoop crashed, exception: " ++ show e)
+
+    handleDisconnect config quitMV = Disconnect $ \irc -> do
+        mQuit <- tryTakeMVar quitMV
+        case mQuit of
+          -- We're shutting down? If so, do not reconnect
+          Just () -> putMVar quitMV ()
+          Nothing -> do
+            noticeM (cLogName config) "Reconnecting to IRC"
+            eIrc <- reconnect irc
+            case eIrc of
+              -- Reconnect OK?
+              Right _ -> noticeM (cLogName config) "Reconnected OK"
+              Left err -> do
+                errorM (cLogName config) "Reconnection failed"
+                forkIO $ putMVar quitMV ()
+                ioError err
