@@ -90,7 +90,7 @@ ggsLoop baseState irc = do
     add (host, port) =
       add' host port
       `caughtAction`
-      (\msg -> when (not $ null msg) $ log WARNING $ printf "pollGGS: Failed to add game (%s:%d): %s" host (show port) msg)
+      (\msg -> when (not $ null msg) $ log WARNING $ printf "pollGGS: Failed to add game (%s:%d): %s" host port msg)
     add' host port = do
       ent <- runDB $ getBy (Address host port)
       when (isNothing ent) $ do
@@ -100,12 +100,12 @@ ggsLoop baseState irc = do
         runDB $ insert $ Game host port GGS [] now (toLowercase $ name game) game
         
         log NOTICE $ printf "Added game %s from GGS" (name game)
-        announce $ printf "Added game %s from GGS" (name game)
+        announce $ printf "Added game %s from GGS (%s:%d)" (name game) host port
     
     remove (host, port) =
       remove' host port
       `caughtAction`
-      (\msg -> when (not $ null msg) $ log WARNING $ printf "pollGGS: Failed to remove game (%s:%d): %s" host (show port) msg)
+      (\msg -> when (not $ null msg) $ log WARNING $ printf "pollGGS: Failed to remove game (%s:%d): %s" host port msg)
     remove' host port = do
       let address = Address host port
       ment <- runDB $ getBy address
@@ -120,4 +120,4 @@ ggsLoop baseState irc = do
             deleteBy address
           
           log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
-          announce $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
+          announce $ printf "Removed game %s (%s:%d)" (name $ gameGameInfo $ entityVal ent) host port
