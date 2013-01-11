@@ -52,7 +52,7 @@ pollGGS = do
 
   case decode resp of
     Nothing    -> failMsg $ "Failed to decode games from: " ++ (show resp)
-    Just games -> return games
+    Just games -> return $ map (toLowercase *** id) games
 
 
 ggsLoop :: ActionState -> MIrc -> IO ()

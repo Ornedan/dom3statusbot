@@ -184,7 +184,7 @@ getArgumentAddress args = do
         Just addr -> return (addr, arg2:rest)
         -- Nope. Assume the first two are host and port
         Nothing -> do
-          let host = arg1
+          let host  = toLowercase arg1 -- Normalise addresses to lowercase
               port' = arg2
           port <- liftIO $
                   catch (readIO port') $
