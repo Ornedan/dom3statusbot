@@ -99,8 +99,9 @@ ggsLoop baseState irc = do
         
         runDB $ insert $ Game host port GGS [] now (toLowercase $ name game) game
         
-        log NOTICE $ printf "Added game %s from GGS" (name game)
-        announce $ printf "Added game %s from GGS (%s:%d)" (name game) host port
+        let msg = printf "Added game %s from GGS (%s:%d)" (name game) host port
+        log NOTICE msg
+        announce msg
     
     remove (host, port) =
       remove' host port
@@ -119,5 +120,6 @@ ggsLoop baseState irc = do
             deleteWhere [ListenGame ==. entityKey ent]
             deleteBy address
           
-          log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
-          announce $ printf "Removed game %s (%s:%d)" (name $ gameGameInfo $ entityVal ent) host port
+          let msg = printf "Removed game %s (%s:%d)" (name $ gameGameInfo $ entityVal ent) host port
+          log NOTICE msg
+          announce msg
