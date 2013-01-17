@@ -140,6 +140,8 @@ requestGameInfo host port = do
   when (isNothing mgame) $ do
     failMsg $ printf "Querying game from %s:%d timed out" host port
   
+  log DEBUG $ printf "Got response for game %s:%d" host port
+  
   return $ fromJust mgame
   
   where
