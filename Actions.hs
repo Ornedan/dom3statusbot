@@ -140,9 +140,11 @@ requestGameInfo host port = do
   when (isNothing mgame) $ do
     failMsg $ printf "Querying game from %s:%d timed out" host port
   
-  log DEBUG $ printf "Got response for game %s:%d" host port
+  let game = fromJust mgame
   
-  return $ fromJust mgame
+  log DEBUG $ printf "Got response for game %s:%d: %s turn %d, TTH %s" host port (name game) (turn game) (msecToString $ timeToHost game)
+  
+  return game
   
   where
     connect = connectTo host (PortNumber $ fromIntegral port)
