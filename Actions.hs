@@ -119,7 +119,13 @@ delay secs = liftIO $ longThreadDelay $ 10^6 * fromIntegral secs
 
 
 requestGameInfo :: String -> Int -> Action GameInfo
-requestGameInfo host port = do
+requestGameInfo host port = requestGameInfo' host port
+                            `catch'`
+                             (\(e :: BotException) -> throw e)
+                            `catch'`
+                            (\(e :: SomeException) -> failMsg $ printf "requestGameInfo %s:%d failed with exception: %s" host port (show e))
+
+requestGameInfo' host port = do
   cto <- asks (cConnectTimeout . sConfig)
   pto <- asks (cPollTimeout . sConfig)
   
