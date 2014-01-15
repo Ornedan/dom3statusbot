@@ -7,7 +7,9 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Resource (runResourceT)
 import Control.Monad.Trans.Writer hiding (listen)
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
@@ -166,7 +168,7 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
                                cEvents   = events }
   
   -- Init DB (if necessary)
-  runSqlPool (runMigration migrateAll) connPool
+  runResourceT $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) connPool
   
   -- Connect to IRC
   eIrc <- connect ircConfig True False

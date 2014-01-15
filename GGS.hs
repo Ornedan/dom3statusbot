@@ -28,6 +28,7 @@ import Actions
 import Config
 import BotException
 import Database
+import DatabaseFlags
 import GameInfo
 import Util
 

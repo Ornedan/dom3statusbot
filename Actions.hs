@@ -9,7 +9,9 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Resource (runResourceT)
 import Control.Monad.Trans.Writer hiding (liftCatch)
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.UTF8 (fromString, toString)
@@ -17,7 +19,7 @@ import Data.List ((\\), intercalate)
 import Data.Maybe
 import Data.Time
 import Database.Persist
-import Database.Persist.GenericSql
+import Database.Persist.Sql
 import Network
 import Network.SimpleIRC
 import System.Exit
@@ -32,6 +34,7 @@ import qualified Data.ByteString as B
 import BotException
 import Config
 import Database
+import DatabaseFlags
 import GameInfo
 import Protocol
 import ThreadPool
@@ -64,10 +67,10 @@ sayTo to str = do
   irc <- asks sIrc
   liftIO $ sendMsg irc to $ fromString str
 
-runDB :: SqlPersist IO a -> Action a
+--runDB :: SqlPersistT IO a -> Action a
 runDB act = do
   pool <- asks sCPool
-  liftIO $ runSqlPool act pool
+  liftIO $ runResourceT $ runStderrLoggingT $ runSqlPool act pool
 
 getTime :: Action UTCTime
 getTime = liftIO getCurrentTime
@@ -157,9 +160,9 @@ requestGameInfo' host port = do
               `catch` (\(e :: IOException) -> do
                           failMsg $ printf "Could not connect to %s:%d" host port)
 
-requestCurrentGameInfo :: Unique (GameGeneric SqlPersist) SqlPersist -> Action (Maybe (Entity Game))
-requestCurrentGameInfo address@(Address host port) = do
-  ment <- runDB $ getBy address
+requestCurrentGameInfo :: (String, Int) -> Action (Maybe (Entity Game))
+requestCurrentGameInfo (host, port) = do
+  ment <- runDB $ getBy $ Address host port
   
   case ment of
     Nothing -> return Nothing
@@ -168,13 +171,12 @@ requestCurrentGameInfo address@(Address host port) = do
       waitAction (3 * 1000 * 1000) $ updateGame ent
       
       -- Return whatever is now the game status
-      runDB $ getBy address
-
+      runDB $ getBy $ Address host port
 
 getArguments :: Action [String]
 getArguments = asks sArgs >>= return . map toString . filter (not . B.null) . B.split 0x20
 
-getArgumentAddress :: [String] -> Action (Unique (GameGeneric a) b, [String])
+getArgumentAddress :: [String] -> Action ((String, Int), [String])
 getArgumentAddress args = do
   case args of
     -- No arguments were present? Fail the operation
@@ -199,17 +201,18 @@ getArgumentAddress args = do
           port <- liftIO $
                   catch (readIO port') $
                   (\(e :: SomeException) -> failMsg "Invalid host & port. Note that Dominions 3 does not allow game names to contain spaces.")
-          return (Address host port, rest)
+          return ((host, port), rest)
 
   where
+    loadAddress = undefined
+    {-
     loadAddress name' = do
       let name = toLowercase name'
       ment <- runDB $ selectFirst [GameLowerName ==. name] []
       case ment of
         Nothing  -> return Nothing
         Just ent -> let game = entityVal ent 
-                    in return $ Just $ Address (gameHost game) (gamePort game)
-
+                    in return $ Just (gameHost game, gamePort game) -}
 
 -- | Poll the given game and update DB accordingly.
 updateGame :: Entity Game -> Action ()
@@ -320,12 +323,12 @@ updateGame oldEnt = do
 -- | Add the game to tracked games if it's not there yet
 register :: Action ()
 register = do
-  (address@(Address server port), rest) <- getArguments >>= getArgumentAddress
+  ((server, port), rest) <- getArguments >>= getArgumentAddress
   flags <- forM rest $ \flag ->
     liftIO $ catch (readIO flag) (\(e :: SomeException) -> failMsg "Invalid flag")
   
   -- Check that no such game is registered yet
-  ent <- runDB $ getBy address
+  ent <- runDB $ getBy $ Address server port
   when (isNothing ent) $ do
     -- Query game, add it to DB and respond affirmatively
     now <- getTime
@@ -340,15 +343,15 @@ register = do
 -- | Remove and announce the removal if the given game exists
 unregister :: Action ()
 unregister = do
-  address <- getArguments >>= getArgumentAddress >>= return . fst
-  ment <- runDB $ getBy address
+  (host, port) <- getArguments >>= getArgumentAddress >>= return . fst
+  ment <- runDB $ getBy $ Address host port
   
   when (isJust ment) $ do
     let ent = fromJust ment
     
     runDB $ do
       deleteWhere [ListenGame ==. entityKey ent]
-      deleteBy address
+      deleteBy $ Address host port
     
     log NOTICE $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
     respond $ printf "Removed game %s" (name $ gameGameInfo $ entityVal ent)
@@ -421,13 +424,12 @@ details = do
       status
       
       -- Then per-nation info
-      address <- getArguments >>= getArgumentAddress >>= return . fst
-      ment <- runDB $ getBy address
+      (host, port) <- getArguments >>= getArgumentAddress >>= return . fst
+      ment <- runDB $ getBy $ Address host port
       
       when (isJust ment) $ do
         let game = entityVal $ fromJust ment
             info = gameGameInfo game
-            Address host port = address
         
         -- Show host and port
         respond $ printf " Address: %s:%d" host port
@@ -459,8 +461,8 @@ details = do
 -- | Show the list of mods used in the given game
 listMods :: Action ()
 listMods = do
-  address <- getArguments >>= getArgumentAddress >>= return . fst
-  ent <- runDB $ getBy address
+  (host, port) <- getArguments >>= getArgumentAddress >>= return . fst
+  ent <- runDB $ getBy $ Address host port
   
   when (isJust ent) $ do
     let game = gameGameInfo $ entityVal $ fromJust ent
@@ -483,11 +485,11 @@ listGames = do
 
 listen :: Action ()
 listen = do
-  address <- getArguments >>= getArgumentAddress >>= return . fst
+  (host, port) <- getArguments >>= getArgumentAddress >>= return . fst
   nick <- asks (toString . fromJust . mNick . sMsg)
   
   -- Require the game exists
-  gameEnt <- runDB $ getBy address
+  gameEnt <- runDB $ getBy $ Address host port
   when (isNothing gameEnt) failSilent
   let key  = entityKey $ fromJust gameEnt
       game = entityVal $ fromJust gameEnt
@@ -504,11 +506,11 @@ listen = do
 
 unlisten :: Action ()
 unlisten = do
-  address <- getArguments >>= getArgumentAddress >>= return . fst
+  (host, port) <- getArguments >>= getArgumentAddress >>= return . fst
   nick <- asks (toString . fromJust . mNick . sMsg)
   
   -- Require the game exists
-  gameEnt <- runDB $ getBy address
+  gameEnt <- runDB $ getBy $ Address host port
   when (isNothing gameEnt) failSilent
   let key  = entityKey $ fromJust gameEnt
       game = entityVal $ fromJust gameEnt
@@ -533,3 +535,4 @@ quit code quitMV = do
     else do
     nick <- asks (mNick . sMsg)
     log WARNING $ printf "Quit requested with invalid code by %s" (show nick)
+

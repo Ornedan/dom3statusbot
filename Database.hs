@@ -1,6 +1,10 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, ScopedTypeVariables #-}
-{-# LANGUAGE GADTs, FlexibleContexts, Rank2Types #-}
-
+{-# LANGUAGE EmptyDataDecls    #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeFamilies      #-}
 module Database where
 
 import Data.Time
@@ -8,25 +12,11 @@ import Database.Persist
 import Database.Persist.Sqlite
 import Database.Persist.TH
 
+import DatabaseFlags
 import GameInfo
 
 
-derivePersistField "GameInfo"
-
-
-data GameSource = Manual
-                | GGS
-                deriving (Eq, Read, Show)
-
-data GameFlag = NoAnnounce
-              deriving (Eq, Read, Show)
-                
-
-derivePersistField "GameSource"
-derivePersistField "GameFlag"
-
-
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
+share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Game
   -- Primary key, address and port
   host      String

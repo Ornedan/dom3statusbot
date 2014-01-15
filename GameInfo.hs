@@ -1,7 +1,15 @@
+{-# LANGUAGE EmptyDataDecls    #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeFamilies      #-}
 module GameInfo where
 
 import Control.DeepSeq
 import Data.Map (Map)
+import Database.Persist.TH
 
 
 data GameInfo = GameInfo { name       :: String,
@@ -130,3 +138,6 @@ nationName 24 = "AI Special monsters 2"
 nationName 25 = "AI Independents"
 
 nationName n  = "Nation " ++ show n
+
+
+derivePersistField "GameInfo"

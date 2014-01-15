@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Protocol where
 
+import Codec.Compression.Zlib
 import Control.DeepSeq (deepseq)
 import Control.Monad (replicateM, when)
 import Data.Binary.Get
