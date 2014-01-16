@@ -51,11 +51,30 @@ Executable dom3statusbot
   Main-is: dom3statusbot.hs
   
   -- Packages needed in order to build this package.
-  Build-depends: aeson, base, binary, bytestring, containers, deepseq, hslogger,
-                 HTTP, network, persistent, persistent-template, persistent-sqlite,
-                 random, simpleirc, time, transformers, utf8-string, yaml
+  Build-depends: aeson,
+                 base,
+                 binary,
+                 bytestring,
+                 containers,
+                 deepseq,
+                 hslogger,
+                 HTTP,
+                 monad-logger,
+                 network,
+                 persistent,
+                 persistent-template,
+                 persistent-sqlite,
+                 random,
+                 resourcet,
+                 simpleirc,
+                 time,
+                 transformers,
+                 utf8-string,
+                 yaml,
+                 zlib
   
-  GHC-Options: -threaded -rtsopts=all -with-rtsopts=-N -eventlog -debug
+  GHC-Options: -threaded -rtsopts=all -with-rtsopts=-N
+-- -eventlog -debug
 
   -- Modules not exported by this package.
   -- Other-modules:       
