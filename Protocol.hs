@@ -5,10 +5,13 @@ import Codec.Compression.Zlib
 import Control.DeepSeq (deepseq)
 import Control.Monad (replicateM, when)
 import Data.Binary.Get
+import Data.ByteString.Lazy.Builder
+import Data.ByteString.Lazy.Builder.ASCII
 import Data.ByteString.Char8(ByteString(..))
 import Data.ByteString.Lazy.UTF8 (toString)
 import Data.Maybe (isJust, fromJust)
 import Data.Word (Word8)
+import Network
 import System.IO
 import Text.Printf
 
@@ -20,38 +23,42 @@ import qualified Data.Map as Map
 import GameInfo
 
 
-
 -- | Number of nation slots.
-numberOfNations = 95
+numberOfNations = 200
 
 
 -- | Parse the response to a status request.
 parseStatus :: B.ByteString -> GameInfo
-parseStatus body = runGet parseStatus' $ BL.fromChunks [body]
+parseStatus body = runGet parseStatus' (BL.take 4 sbody `BL.append` decompressed)
   where
+    sbody = BL.fromStrict body
+    decompressed = decompress $ BL.drop 4 sbody
     parseStatus' = do
-      -- Message type code
-      0x04 <- getWord8
+      -- Body length when decompressed
+      bodyLength <- getWord32le
+      when (BL.length decompressed /= fromIntegral bodyLength) $
+        fail $ printf "Length mismatch: header field %d; decompressed body %d" bodyLength (BL.length decompressed)
       
-      -- Unknown stuff, seems constant
-      0x23 <- getWord8
-      0x01 <- getWord8
-      0x00 <- getWord8
-      0x00 <- getWord8
+      -- Unknown stuff
+      require $ B.pack [0x04, 0x60, 0x01, 0x00, 0x00]
       
       -- The interesting fields begin
       gameState <- parseGameState
       name <- getLazyByteStringNul >>= return . toString
       era <- parseEra
+
+      -- Unknown stuff
+      requireOneOf [0x40, 0x50, 0x52, 0xd0]
+      require $ B.pack [0x00, 0x00, 0x00]
       
-      -- Another constant(?) bit
-      0x2d <- getWord8
+      -- More unknown stuff, just before the TTH
+      require "-"
       
       -- Time to host, in milliseconds
       time <- getWord32le
       
-      -- Some unknown field
-      0x00 <- getWord8
+      -- Some unknown stuff
+      require $ B.pack [0x00]
       
       -- Player slot fields
       players <- replicateM numberOfNations getWord8
@@ -62,7 +69,9 @@ parseStatus body = runGet parseStatus' $ BL.fromChunks [body]
       turn <- parseTurn
       
       -- Some unknown field
-      skipOneOf [0x00, 0x01]
+      requireOneOf [0x00, 0x01]
+      skip 3
+      require $ B.pack [0x00]
       
       -- There should be no more input left
       rem <- remaining
@@ -109,14 +118,15 @@ parseStatus body = runGet parseStatus' $ BL.fromChunks [body]
     parsePlayer 0xff = DefeatedEarlier
     parsePlayer byte = error $ printf "parsePlayer: Unrecognized value %d" byte
 
-    parseSubmitted 0x00 = False
-    parseSubmitted 0x01 = True
+    parseSubmitted 0x00 = None
+    parseSubmitted 0x01 = Partial
+    parseSubmitted 0x02 = Full
     
     parseConnected 0x00 = False
     parseConnected 0x01 = True
 
     parseNation nth (0x00, 0x00, 0x00) = Nothing -- Empty slot
-    parseNation 25  (0x03, 0x00, 0x00) = Nothing -- Independents special slot
+    parseNation nth (0x03, 0x00, 0x00) = Nothing -- Independents special slot
     parseNation nth (player, submitted, connected) =
       Just Nation { nationId  = nth, 
                     player    = parsePlayer player, 
@@ -155,13 +165,19 @@ requestMods = mkRequest 0x11
 
 requestBye = mkRequest 0x0b
 
+-- | Require the next bytes of input be the same as the given bytestring.
+require :: B.ByteString -> Get ()
+require str = do
+  got <- getByteString $ B.length str
+  when (not $ got == str) $
+    fail $ printf "require: got %s, expected %s" (show got) (show str)
 
--- | Skip a byte if it's value is in the given list, otherwise error.
-skipOneOf :: [Word8] -> Get ()
-skipOneOf bs = do
+-- | Require the next byte to be one of the listed values.
+requireOneOf :: [Word8] -> Get ()
+requireOneOf bs = do
   byte <- getWord8
   when (not $ byte `elem` bs) $
-    fail $ printf "skipOneOf: got %d, expected one of %s" byte (show bs)
+    fail $ printf "requireOneOf: got %d, expected one of %s" byte (show bs)
 
 -- | Write to handle and flush.
 write :: Handle -> B.ByteString -> IO ()
@@ -176,17 +192,22 @@ doMessage h m = do
   write h m
   
   header <- B.hGetSome h 6
-  when (B.length header /= 6 || not ("fH" `B.isPrefixOf` header)) $
+  when (B.length header /= 6 || not (("fH" `B.isPrefixOf` header) ||
+                                     ("fJ" `B.isPrefixOf` header))) $
     fail $ printf "Got invalid header: '%s'" (show header)
   
   let bodyLength = flip runGet (BL.fromChunks [header]) $ do
-        0x66 <- getWord8 -- f
-        0x48 <- getWord8 -- H in all the message types we use
+        require "f"               -- f
+        requireOneOf [0x48, 0x4a] -- H or J
         getWord32le >>= return . fromIntegral
   
   body <- B.hGetSome h bodyLength
   when (B.length body /= bodyLength) $
     fail $ printf "Length mismatch: header field %d; actual body %d" bodyLength (B.length body)
+
+  remain <- B.hGetNonBlocking h 64 -- Grab a bit, hopefully enough to figure out what it is
+  when (B.length remain /= 0) $
+    fail $ printf "Length mismatch: data after given body length: %s" (show remain)
 
   return body
 

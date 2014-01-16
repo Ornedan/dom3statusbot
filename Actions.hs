@@ -204,15 +204,13 @@ getArgumentAddress args = do
           return ((host, port), rest)
 
   where
-    loadAddress = undefined
-    {-
     loadAddress name' = do
       let name = toLowercase name'
       ment <- runDB $ selectFirst [GameLowerName ==. name] []
       case ment of
         Nothing  -> return Nothing
         Just ent -> let game = entityVal ent 
-                    in return $ Just (gameHost game, gamePort game) -}
+                    in return $ Just (gameHost game, gamePort game)
 
 -- | Poll the given game and update DB accordingly.
 updateGame :: Entity Game -> Action ()
@@ -305,7 +303,7 @@ updateGame oldEnt = do
         
         guessStales = do
           let tthSecs    = tthOld `div` 1000
-              stales     = filter (not . submitted) $ filter ((== Human) . player) $ nations old
+              stales     = filter ((== None) . submitted) $ filter ((== Human) . player) $ nations old
               present    = filter connected stales
               notPresent = filter (not . connected) stales
           -- It's not staling if the turn changes well enough before the deadline
@@ -380,19 +378,25 @@ status = do
       (maybe "Unknown era" showEra $ era game)
       (length $ filter ((== Human) . player) $ nations game)
     showRunning sincePoll game = execWriter $ do
-      let players      = filter ((== Human) . player) $ nations game
-      let tth          = timeToHost game
-      let notSubmitted = filter (not . submitted) players
+      let players = filter ((== Human) . player) $ nations game
+      let tth     = timeToHost game
+      let nothing = filter ((== None)    . submitted) players
+      let partial = filter ((== Partial) . submitted) players
+      let full    = filter ((== Full)    . submitted) players
       tell $
         printf "%s: turn %d, %s, %d/%d left to submit"
         (name game)
         (turn game)
         (showTime tth sincePoll)
-        (length notSubmitted)
+        (length (nothing ++ partial))
         (length $ players)
-      when (length notSubmitted > 0 && length notSubmitted <= 3) $ do
-        tell ": "
-        tell $ intercalate ", " $ map (nationName . nationId) notSubmitted
+      when (length (nothing ++ partial) > 0 && length (nothing ++ partial) <= 3) $ do
+        when (length nothing > 0) $ do
+          tell ", no turn: "
+          tell $ intercalate ", " $ map (nationName . nationId) nothing
+        when (length partial > 0) $ do
+          tell ", unfinished: "
+          tell $ intercalate ", " $ map (nationName . nationId) partial
       let nAIs = length $ filter ((== AI) . player) $ nations game
       when (nAIs > 0) $
         tell $ printf ", %d AIs" nAIs
@@ -445,7 +449,10 @@ details = do
       -- Only relevant when the game is running
       when (state game == Running && player nation == Human) $ do
         tell ", "
-        tell $ if submitted nation then "submitted" else "not submitted"
+        tell $ case submitted nation of
+          None    -> "not submitted"
+          Partial -> "unfinished"
+          Full    -> "submitted"
         when (connected nation) $ do
           tell $ ", connected"
     
