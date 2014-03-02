@@ -47,9 +47,8 @@ parseStatus body = runGet parseStatus' (BL.take 4 sbody `BL.append` decompressed
       name <- getLazyByteStringNul >>= return . toString
       era <- parseEra
 
-      -- Unknown stuff
-      requireOneOf [0x40, 0x50, 0x52, 0xd0]
-      require $ B.pack [0x00, 0x00, 0x00]
+      -- Unknown word32
+      getWord32le
       
       -- More unknown stuff, just before the TTH
       require "-"
