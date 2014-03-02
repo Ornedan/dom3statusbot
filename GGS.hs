@@ -62,6 +62,7 @@ ggsLoop baseState irc = do
       interval = fromIntegral $ cGGSPollInterval $ sConfig baseState
   
   forever $ flip runReaderT state $ do
+    log INFO $ printf "Polling GGS's games list"
     -- Get currently known games from DB and GGS
     dbGames <- runDB $ selectList [] []
     mggsGames <- pollGGS'
