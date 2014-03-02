@@ -188,7 +188,8 @@ main = withSqlitePool "bot.db" 1 $ \connPool -> do
       forkIO (pollLoop' state irc) >>= flip labelThread "pollLoop-start"
       
       -- Start GGS polling
-      forkIO (ggsLoop' state irc) >>= flip labelThread "ggsLoop-start"
+      when (cGGSPollEnabled config) $
+        forkIO (ggsLoop' state irc) >>= flip labelThread "ggsLoop-start"
 
       -- Wait for quit
       readMVar quitMV

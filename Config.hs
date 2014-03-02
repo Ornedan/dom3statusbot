@@ -14,10 +14,12 @@ data Config = Config { cIrcServer       :: String,
                        
                        cLogName         :: String, 
                        cLogLevel        :: String,
+                       
                        cConnectTimeout  :: Int,
                        cPollTimeout     :: Int,
                        cPollInterval    :: Int, 
-                       
+
+                       cGGSPollEnabled  :: Bool,
                        cGGSPollInterval :: Int }
             deriving (Show)
 
@@ -29,8 +31,11 @@ instance FromJSON Config where
                          
                          v .: "logfile" <*>
                          v .: "loglevel" <*>
+
                          v .: "connect-timeout" <*>
                          v .: "poll-timeout" <*>
                          v .: "poll-interval" <*>
+
+                         v .: "ggs-poll-enabled" <*>
                          v .: "ggs-poll-interval"
   parseJSON _ = mzero
