@@ -39,8 +39,11 @@ parseStatus body = runGet parseStatus' (BL.take 4 sbody `BL.append` decompressed
       when (BL.length decompressed /= fromIntegral bodyLength) $
         fail $ printf "Length mismatch: header field %d; decompressed body %d" bodyLength (BL.length decompressed)
       
-      -- Unknown stuff
-      require $ B.pack [0x04, 0x60, 0x01, 0x00, 0x00]
+      -- Message type
+      require $ B.pack [0x04]
+      
+      -- Unknown stuff, probably a word32le but not sure
+      skip 4 -- ?? 01 00 00
       
       -- The interesting fields begin
       gameState <- parseGameState
