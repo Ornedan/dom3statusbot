@@ -29,16 +29,9 @@ numberOfNations = 200
 
 -- | Parse the response to a status request.
 parseStatus :: B.ByteString -> GameInfo
-parseStatus body = runGet parseStatus' (BL.take 4 sbody `BL.append` decompressed)
+parseStatus body = runGet parseStatus' $ BL.fromStrict body
   where
-    sbody = BL.fromStrict body
-    decompressed = decompress $ BL.drop 4 sbody
     parseStatus' = do
-      -- Body length when decompressed
-      bodyLength <- getWord32le
-      when (BL.length decompressed /= fromIntegral bodyLength) $
-        fail $ printf "Length mismatch: header field %d; decompressed body %d" bodyLength (BL.length decompressed)
-      
       -- Message type
       require $ B.pack [0x04]
       
@@ -134,11 +127,10 @@ parseStatus body = runGet parseStatus' (BL.take 4 sbody `BL.append` decompressed
                     player    = parsePlayer player, 
                     submitted = parseSubmitted submitted,
                     connected = parseConnected connected }
-                               
 
 -- | Parse the response to a mod list request.
 parseMods :: B.ByteString -> [ModInfo]
-parseMods body = runGet parseMods' $ BL.fromChunks [body]
+parseMods body = runGet parseMods' $ BL.fromStrict body
   where
     parseMods' = do
       0x12 <- getWord8 -- Message type code
@@ -192,17 +184,19 @@ write h q = do
 doMessage :: Handle -> B.ByteString -> IO B.ByteString
 doMessage h m = do
   write h m
-  
+
+  -- Analyse header
   header <- B.hGetSome h 6
   when (B.length header /= 6 || not (("fH" `B.isPrefixOf` header) ||
                                      ("fJ" `B.isPrefixOf` header))) $
     fail $ printf "Got invalid header: '%s'" (show header)
   
-  let bodyLength = flip runGet (BL.fromChunks [header]) $ do
-        require "f"               -- f
-        requireOneOf [0x48, 0x4a] -- H or J
+  let bodyLength = flip runGet (BL.fromStrict header) $ do
+        skip 2
         getWord32le >>= return . fromIntegral
-  
+  let compressed = "fJ" `B.isPrefixOf` header
+
+  -- Read body
   body <- B.hGetSome h bodyLength
   when (B.length body /= bodyLength) $
     fail $ printf "Length mismatch: header field %d; actual body %d" bodyLength (B.length body)
@@ -211,7 +205,21 @@ doMessage h m = do
   when (B.length remain /= 0) $
     fail $ printf "Length mismatch: data after given body length: %s" (show remain)
 
-  return body
+  -- Decompress body if necessary
+  if not compressed
+    then return body
+    else do
+    -- First 4 bytes are decompressed body length
+    let lbody = BL.fromStrict body
+        decompressedBodyLength = flip runGet (BL.take 4 lbody) $ do
+          getWord32le >>= return . fromIntegral
+        decompressed = decompress $ BL.drop 4 lbody
+
+    when (BL.length decompressed /= fromIntegral decompressedBodyLength) $
+      fail $ printf "Length mismatch: header field %d; decompressed body %d" bodyLength (BL.length decompressed)
+
+    return $ BL.toStrict decompressed
+    
 
 
 -- | Communicate with a Dominions 3 server via the given handle. Requests game status and mods
