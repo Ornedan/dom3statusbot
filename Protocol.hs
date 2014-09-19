@@ -143,6 +143,7 @@ parseMods body = runGet parseMods' $ BL.fromStrict body
       major <- getWord16le >>= return . fromIntegral
       minor <- getWord16le >>= return . fromIntegral
       name <- getLazyByteStringNul >>= return . toString
+      skip 4 -- No idea what this is
       
       return $ ModInfo { modName = name,
                          modMajorVersion = major,
@@ -219,7 +220,6 @@ doMessage h m = do
       fail $ printf "Length mismatch: header field %d; decompressed body %d" bodyLength (BL.length decompressed)
 
     return $ BL.toStrict decompressed
-    
 
 
 -- | Communicate with a Dominions 3 server via the given handle. Requests game status and mods
