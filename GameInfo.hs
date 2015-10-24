@@ -72,7 +72,7 @@ nationName 1 = "Game internal 1"
 nationName 2 = "Game internal 2"
 nationName 3 = "Game internal 3"
 nationName 4 = "Game internal 4"
-
+-- EA block
 nationName 5  = "EA Arcoscephale"
 nationName 6  = "EA Ermor"
 nationName 7  = "EA Ulm"
@@ -97,11 +97,12 @@ nationName 27 = "EA Yomi"
 nationName 28 = "EA Hinnom"
 nationName 29 = "EA Ur"
 nationName 30 = "EA Berytos"
+nationName 31 = "EA Xibalba"
 nationName 83 = "EA Atlantis"
 nationName 84 = "EA R'lyeh"
 nationName 85 = "EA Pelagia"
 nationName 86 = "EA Oceania"
-
+-- MA block
 nationName 33 = "MA Arcoscephale"
 nationName 34 = "MA Ermor"
 nationName 35 = "MA Sceleria"
@@ -125,11 +126,13 @@ nationName 52 = "MA Vanarus"
 nationName 53 = "MA Bandar Log"
 nationName 54 = "MA Shinuyama"
 nationName 55 = "MA Ashdod"
+nationName 57 = "MA Nazca"
+nationName 58 = "MA Xibalba"
 nationName 87 = "MA Atlantis"
 nationName 88 = "MA R'lyeh"
 nationName 89 = "MA Pelagia"
 nationName 90 = "MA Oceania"
-
+-- LA block
 nationName 60 = "LA Arcoscephale"
 nationName 61 = "LA Pythium"
 nationName 62 = "LA Lemur"
@@ -149,9 +152,11 @@ nationName 76 = "LA Utgård"
 nationName 77 = "LA Bogarus"
 nationName 78 = "LA Patala"
 nationName 79 = "LA Gath"
+nationName 80 = "LA Ragha"
+nationName 81 = "LA Xibalba"
 nationName 91 = "LA Atlantis"
 nationName 92 = "LA R'lyeh"
-
+-- Unknown
 nationName n  = "Nation " ++ show n
 
 
