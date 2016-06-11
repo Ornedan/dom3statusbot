@@ -79,7 +79,7 @@ parseStatus body = runGet parseStatus' $ BL.fromStrict body
                         timeToHost = fromIntegral time,
                         era        = era,
                         nations    = map fromJust $ filter isJust $
-                                     map (uncurry parseNation) $
+                                     map (uncurry $ parseNation gameState) $
                                      zip [0 ..] $ zip3 players submitteds connecteds,
                         mods       = undefined }
     
@@ -120,9 +120,14 @@ parseStatus body = runGet parseStatus' $ BL.fromStrict body
     parseConnected 0x00 = False
     parseConnected 0x01 = True
 
-    parseNation nth (0x00, 0x00, 0x00) = Nothing -- Empty slot
-    parseNation nth (0x03, 0x00, 0x00) = Nothing -- Independents special slot
-    parseNation nth (player, submitted, connected) =
+    parseNation _ nth (0x00, 0x00, 0x00) = Nothing -- Empty slot
+    parseNation _ nth (0x03, 0x00, 0x00) = Nothing -- Independents special slot
+    parseNation Waiting nth (player, submitted, connected) =
+      Just Nation { nationId  = nth,
+                    player    = parsePlayer player,
+                    submitted = None,
+                    connected = parseConnected connected }
+    parseNation Running nth (player, submitted, connected) =
       Just Nation { nationId  = nth, 
                     player    = parsePlayer player, 
                     submitted = parseSubmitted submitted,
