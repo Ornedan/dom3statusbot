@@ -4,7 +4,15 @@ module Protocol where
 import Codec.Compression.Zlib
 import Control.DeepSeq (deepseq)
 import Control.Monad (replicateM, when)
-import Data.Binary.Get
+import Data.Binary.Get (Get(..),
+                        getByteString,
+                        getLazyByteStringNul,
+                        getWord8,
+                        getWord16le,
+                        getWord32le,
+                        remaining,
+                        runGet,
+                        skip)
 import Data.ByteString.Lazy.Builder
 import Data.ByteString.Lazy.Builder.ASCII
 import Data.ByteString.Char8(ByteString(..))
