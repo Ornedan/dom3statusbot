@@ -104,7 +104,8 @@ mkMsgEvent baseState pool command action = event
 mkMsgEvents :: ActionState -> ConnectionPool -> [(Action (), String, String)] -> [IrcEvent]
 mkMsgEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privmsg $ mkMsgEvent baseState pool command action) events
   where
-    mkHelp = Privmsg $ mkMsgEvent baseState pool "help" $ do
+    mkHelp = Privmsg $ mkMsgEvent baseState pool "help" $ respondingToNick help
+    help = do
       let longest = maximum $ 4 : map (\(_,cmd,_) -> length cmd) events
           pattern = printf "!%%-%ds %%s" longest
       respond $ printf pattern ("help" :: String) ("Display this list of commands." :: String)

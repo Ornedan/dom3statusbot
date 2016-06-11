@@ -67,6 +67,13 @@ sayTo to str = do
   irc <- asks sIrc
   liftIO $ sendMsg irc to $ fromString str
 
+respondingToNick :: Action () -> Action ()
+respondingToNick action = do
+  -- Override message origin (nick or chan) with message source nick
+  state <- ask
+  let state' = state { sMsg = (sMsg state) { mOrigin = mNick $ sMsg $ state } }
+  liftIO $ runReaderT action state'
+
 --runDB :: SqlPersistT IO a -> Action a
 runDB act = do
   pool <- asks sCPool
@@ -416,12 +423,7 @@ status = do
 
 -- | Respond with the given game's current detailed status
 details :: Action ()
-details = do
-  -- Set the response to always go to the
-  state <- ask
-  let state' = state { sMsg = (sMsg state) { mOrigin = mNick $ sMsg $ state } }
-  liftIO $ runReaderT details' state'
-  
+details = respondingToNick details'
   where
     details' = do
       -- First, normal status
