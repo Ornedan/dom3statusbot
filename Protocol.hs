@@ -32,7 +32,7 @@ import GameInfo
 
 
 -- | Number of nation slots.
-numberOfNations = 200
+numberOfNations = 250
 
 
 -- | Parse the response to a status request.
