@@ -7,7 +7,8 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (runStderrLoggingT)
+import Control.Monad.Logger (MonadLogger(..), runStderrLoggingT)
+import qualified Control.Monad.Trans.Class as Trans
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Resource (runResourceT)
 import Control.Monad.Trans.Writer hiding (listen)
@@ -113,6 +114,8 @@ mkMsgEvents baseState pool events = mkHelp : map (\(action, command, _) -> Privm
       forM_ events $ \(_, command, description) -> do
         respond $ printf pattern command description
 
+instance MonadLogger IO where
+  monadLoggerLog a b c d = liftIO $ monadLoggerLog a b c d
 
 main = withSqlitePool "bot.db" 1 $ \connPool -> do
   -- Set up stderr logging

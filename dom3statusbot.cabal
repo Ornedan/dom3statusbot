@@ -61,6 +61,7 @@ Executable dom3statusbot
                  HTTP,
                  monad-logger,
                  network,
+                 network-uri,
                  persistent,
                  persistent-template,
                  persistent-sqlite,
